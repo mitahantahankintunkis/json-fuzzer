@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+clap = { version = "4.5.27", features = ["derive"] }
+flate2 = { version = "1.0.35", features = ["zlib-ng"] }
 
 [profile.release]
 debug = 1

@@ -3,56 +3,69 @@ pub struct ReplaceBytes {
     pub buffer: Vec<u8>,
     //pub charset: Vec<u8>,
     pub indices: Vec<usize>,
-    pub fuzzed_bytes: Vec<u8>,
+    pub has_next: bool,
 }
 
 impl ReplaceBytes {
-    pub fn new(data: &Vec<u8>, bytes_to_replace: usize) -> ReplaceBytes {
-        ReplaceBytes {
-            data: data.clone(),
-            buffer: data.clone(),
+    pub fn new(data: &[u8], bytes_to_replace: usize) -> ReplaceBytes {
+        let mut ret = ReplaceBytes {
+            data: data.to_vec(),
+            buffer: data.to_vec(),
             //charset: Vec::from_iter(0u8..=255u8),
             indices: Vec::from_iter((0..bytes_to_replace).rev()),
-            fuzzed_bytes: vec![0; bytes_to_replace],
+            has_next: true,
+        };
+
+        for i in &ret.indices {
+            ret.buffer[*i] = 0;
         }
+
+        ret
     }
 
     pub fn next(&mut self) -> bool {
-        for i in 0..self.indices.len() {
-            let buffer_i = self.indices[i];
-
-            if buffer_i >= self.buffer.len() {
-                return false;
-            }
-
-            self.fuzzed_bytes[i] = self.fuzzed_bytes[i].wrapping_add(1);
-            self.buffer[buffer_i] = self.fuzzed_bytes[i];
-
-            if self.fuzzed_bytes[i] != 0 {
-                break;
-            }
-
-            self.indices[i] += 1;
-
-            if self.indices[i] < self.buffer.len() - i {
-                break;
-            }
-
-            if i == self.indices.len() - 1 {
-                // println!("indices: {:0X?}", self.indices);
-                // println!("buffer:  {:0X?}", self.buffer);
-                return false;
-            }
+        if !self.has_next {
+            return false;
         }
 
-        for i in (0..(self.indices.len() - 1)).rev() {
-            if self.buffer[self.indices[i] - 1] == 0 && self.indices[i] >= self.buffer.len() - i {
-                self.buffer[self.indices[i] - 1] = self.data[self.indices[i] - 1];
+        for i in 0..self.indices.len() {
+            if self.buffer[self.indices[i]] != 0xff {
+                self.buffer[self.indices[i]] = self.buffer[self.indices[i]].wrapping_add(1);
+                return true;
+            }
+
+            self.buffer[self.indices[i]] = self.data[self.indices[i]];
+            let mut finished: bool = false;
+
+            if self.indices[i] < self.buffer.len() - i - 1 {
+                self.indices[i] += 1;
+                finished = true;
+            } else {
+                if i == self.indices.len() - 1 {
+                    self.has_next = false;
+                    return false;
+                }
+
                 self.indices[i] = self.indices[i + 1] + 1;
             }
+
+            for j in 0..i {
+                self.buffer[self.indices[j]] = self.data[self.indices[j]];
+            }
+
+            for j in (0..i).rev() {
+                self.indices[j] = self.indices[j + 1] + 1;
+                self.buffer[self.indices[j]] = 0;
+            }
+
+            self.buffer[self.indices[i]] = 0;
+
+            if finished {
+                return true;
+            }
         }
 
-        return true;
+        return false;
     }
 }
 
@@ -65,7 +78,6 @@ mod tests {
         let data: Vec<u8> = vec![0; 4];
         let mut payload: ReplaceBytes = ReplaceBytes::new(&data, 3);
         payload.next();
-        payload.fuzzed_bytes[1] = 0xff;
         payload.buffer[1] = 0xff;
     }
 
@@ -88,30 +100,96 @@ mod tests {
     }
 
     #[test]
+    fn two_bytes() {
+        let data: Vec<u8> = Vec::from("{\"q\":0}");
+        let mut buffer: Vec<u8> = data.clone();
+        let mut payload: ReplaceBytes = ReplaceBytes::new(&data, 2);
+
+        for i in 0..(data.len() - 1) {
+            buffer[i] = 0;
+
+            for _ in 0..=255u8 {
+                for j in (i + 1)..(data.len()) {
+                    buffer[j] = 0;
+
+                    for b in 0..=255u8 {
+                        assert!(
+                            buffer.iter().zip(&payload.buffer).all(|(a, b)| a == b),
+                            "i,j,b: {},{},{}\nexpected: {:02X?}\ngot:      {:02X?}",
+                            i,
+                            j,
+                            b,
+                            &buffer,
+                            &payload.buffer
+                        );
+
+                        buffer[j] = buffer[j].wrapping_add(1);
+                        assert!(
+                            payload.has_next,
+                            "should have next i,j,b: {},{},{}  indices: {:?}\nbuffer: {:02x?}",
+                            i, j, b, &payload.indices, &payload.buffer
+                        );
+                        payload.next();
+                    }
+
+                    buffer[j] = data[j];
+                }
+
+                buffer[i] = buffer[i].wrapping_add(1);
+            }
+
+            buffer[i] = data[i];
+        }
+
+        assert!(
+            !payload.next(),
+            "Should not have next.\nindices: {:?}\nbuffer: {:02x?}",
+            &payload.indices,
+            &payload.buffer
+        );
+    }
+
+    #[test]
     fn three_bytes() {
-        let data: Vec<u8> = vec![0; 4];
+        let data: Vec<u8> = vec![0xcc; 4];
         let mut buffer: Vec<u8> = data.clone();
         let mut payload: ReplaceBytes = ReplaceBytes::new(&data, 3);
 
         for i in 0..(data.len() - 2) {
+            buffer[i] = 0;
+
             for _ in 0..=255u8 {
                 for j in (i + 1)..(data.len() - 1) {
+                    buffer[j] = 0;
+
                     for _ in 0..=255u8 {
                         for k in (j + 1)..data.len() {
+                            buffer[k] = 0;
+
                             for b in 0..=255u8 {
                                 assert!(
                                     buffer.iter().zip(&payload.buffer).all(|(a, b)| a == b),
-                                    "i,j,k,b: {},{},{},{}\nexpected: {:0X?}\ngot:      {:0X?}",
+                                    "i,j,k,b: {},{},{},{}  indices: {:?}\nexpected: {:02X?}\ngot:      {:02X?}",
                                     i,
                                     j,
                                     k,
                                     b,
+                                    &payload.indices,
                                     &buffer,
                                     &payload.buffer
                                 );
-                                // println!("{:0X?}\n{:0X?}\n", &buffer, &payload.buffer);
 
                                 buffer[k] = buffer[k].wrapping_add(1);
+                                assert!(
+                                    payload.has_next,
+                                    "should have next i,j,j,b: {},{},{},{}  indices: {:?}\nbuffer: {:02x?}",
+                                    i,
+                                    j,
+                                    k,
+                                    b,
+                                    &payload.indices,
+                                    &payload.buffer
+                                );
                                 payload.next();
                             }
 
@@ -129,5 +207,12 @@ mod tests {
 
             buffer[i] = data[i];
         }
+
+        assert!(
+            !payload.next(),
+            "Should not have next.\nindices: {:?}\nbuffer: {:02x?}",
+            &payload.indices,
+            &payload.buffer
+        );
     }
 }
