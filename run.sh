@@ -5,7 +5,7 @@ cd json-fuzzer/
 (trap 'kill 0' SIGINT
     cd ../json-fuzzer/
     cargo build -r
-    echo "Start server on port 5000"
+    echo "\n\nStart server on port 5000"
     cargo run -r -- --payload '{"q":0,"q":1}' &
 
     sleep 1

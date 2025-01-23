@@ -17,15 +17,15 @@ impl Encoder {
 
     fn write_prev(&mut self) {
         if let Some(prev_added) = &self.prev_added {
-            self.bytes.push(0xff);
-            self.bytes.push(0xff);
-            self.bytes.push(0xee);
+            // self.bytes.push(0xff);
+            // self.bytes.push(0xff);
+            // self.bytes.push(0xee);
             for byte in self.prev_count.to_le_bytes() {
                 self.bytes.push(byte);
             }
-            self.bytes.push(0xee);
-            self.bytes.push(0xff);
-            self.bytes.push(0xff);
+            // self.bytes.push(0xee);
+            // self.bytes.push(0xff);
+            // self.bytes.push(0xff);
 
             for byte in prev_added {
                 self.bytes.push(*byte);

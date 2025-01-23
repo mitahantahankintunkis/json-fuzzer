@@ -39,6 +39,25 @@ func main() {
 		}
 	}
 
+	name_buffer := make([]byte, 32)
+
+	for i := range len(name_buffer) {
+		name_buffer[i] = 0
+	}
+
+	copy(name_buffer, []byte("go-std"))
+	written_bytes, err := conn.Write(name_buffer)
+
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	if written_bytes != len(name_buffer) {
+		fmt.Println("Could not write all name bytes")
+		return
+	}
+
 	buffer_size := binary.LittleEndian.Uint32(header[0:4])
 	payload_size := binary.LittleEndian.Uint16(header[4:6])
 	batch_size := binary.LittleEndian.Uint16(header[6:8])
@@ -46,7 +65,7 @@ func main() {
 	read_buffer := make([]byte, int(payload_size)*int(batch_size))
 	write_buffer := make([]byte, buffer_size)
 
-	fmt.Printf("Header: %v   (%d, %d, %d)\n", header, buffer_size, payload_size, batch_size)
+	// fmt.Printf("Header: %v   (%d, %d, %d)\n", header, buffer_size, payload_size, batch_size)
 
 	for {
 		byte_offset = 0

@@ -1,3 +1,8 @@
+pub trait Payload {
+    fn next(&mut self) -> bool;
+    fn get_payload(&mut self) -> &Vec<u8>;
+}
+
 pub struct ReplaceBytes {
     pub data: Vec<u8>,
     pub buffer: Vec<u8>,
@@ -22,8 +27,10 @@ impl ReplaceBytes {
 
         ret
     }
+}
 
-    pub fn next(&mut self) -> bool {
+impl Payload for ReplaceBytes {
+    fn next(&mut self) -> bool {
         if !self.has_next {
             return false;
         }
@@ -66,6 +73,10 @@ impl ReplaceBytes {
         }
 
         return false;
+    }
+
+    fn get_payload(&mut self) -> &Vec<u8> {
+        return &self.buffer;
     }
 }
 
