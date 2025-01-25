@@ -5,14 +5,26 @@ cd json-fuzzer/
 (trap 'kill 0' SIGINT
     cd ../json-fuzzer/
     cargo build -r
-    echo "\n\nStart server on port 5000"
-    cargo run -r -- --payload '{"q":0,"q":1}' &
+
+    payload='{"q":1,"q":2}'
+    # payload='{"q":1}'
+    echo -e "\n\nFuzzing $payload\n"
+    cargo run -q -r -- --payload $payload &
 
     sleep 1
 
+    cd ../rust/
+    cargo run -q -r &
+
     cd ../go/
-    echo "Start go client"
-    go run main.go &
+    # go run main.go 4 &
+    for parser_number in {0..7}; do
+        if [[ $parser_number -eq 5 ]]; then
+            continue
+        fi
+        echo "Start go parser '$parser_number'"
+        go run main.go $parser_number &
+    done
 
     # cd ../echo/
     # echo "Start echo client"
