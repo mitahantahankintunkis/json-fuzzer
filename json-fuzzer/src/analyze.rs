@@ -1,46 +1,67 @@
 use crate::compression::*;
 use crate::payload::*;
+// use regex::Regex;
 use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
 use std::ops::Range;
-// use std::hash::{Hash, Hasher};
 
 struct FuzzingResult {
     parser_name: String,
     decoder: Decoder,
 }
 
-// struct Vulnerability {
-//     payload: String,
-//     parser_0_name: String,
-//     parser_1_name: String,
-//     parser_0_output: String,
-//     parser_1_output: String,
-// }
+#[derive(Clone)]
+struct Vulnerability {
+    payload: String,
+    parser_0_name: String,
+    parser_1_name: String,
+    parser_0_output: String,
+    parser_1_output: String,
+}
 
-// impl Hash for Vulnerability {
-//     fn hash<H: Hasher>(&self, state: &mut H) {
-//         self.parser_0_name.hash(state);
-//         self.parser_1_name.hash(state);
-//         self.parser_0_output.hash(state);
-//         self.parser_1_output.hash(state);
-//     }
-// }
+impl Hash for Vulnerability {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.parser_0_name.hash(state);
+        self.parser_1_name.hash(state);
+        self.parser_0_output.hash(state);
+        self.parser_1_output.hash(state);
 
-fn analyze_results(fuzzing_type: &FuzzingType, results: &mut Vec<FuzzingResult>) {
+        // let re = Regex::new(r"\d+").unwrap();
+        // re.replace_all(&self.payload, "").hash(state);
+    }
+}
+
+impl PartialEq for Vulnerability {
+    fn eq(&self, other: &Self) -> bool {
+        // lt re = Regex::new(r"\d+").unwrap();
+        self.parser_0_name == other.parser_0_name && self.parser_1_name == other.parser_1_name
+        // && re.replace_all(&self.payload, "") == re.replace_all(&other.payload, "")
+        && self.parser_0_output == other.parser_0_output
+        && self.parser_1_output == other.parser_1_output
+        // && self.payload == other.payload
+    }
+}
+
+impl Eq for Vulnerability {}
+
+fn analyze_results(
+    fuzzing_type: &FuzzingType,
+    results: &mut Vec<FuzzingResult>,
+) -> HashSet<Vulnerability> {
     if results.len() == 0 {
-        return;
+        return HashSet::new();
     }
 
-    print!("{:20}\t", "payload");
-
+    // print!("{:20}\t", "payload");
+    //
     let mut base_payload: &str = "";
-
+    //
     for result in &mut *results {
-        print!("{:20}\t", result.parser_name);
+        // print!("{:20}\t", result.parser_name);
         base_payload = result.decoder.next_message().unwrap();
     }
-
-    println!("");
+    //
+    // println!("");
 
     let mut payload: Box<dyn Payload> = match fuzzing_type {
         FuzzingType::ReplaceOneByte => Box::new(ReplaceBytes::new(base_payload.as_bytes(), 1)),
@@ -109,14 +130,15 @@ fn analyze_results(fuzzing_type: &FuzzingType, results: &mut Vec<FuzzingResult>)
         )),
     };
 
-    let mut analyzed: HashSet<String> = HashSet::new();
-    // let mut vulnerabilities: HashSet<Vulnerability> = HashSet::new();
+    // let mut analyzed: HashSet<String> = HashSet::new();
+    let mut vulnerabilities: HashSet<Vulnerability> = HashSet::new();
 
     // let mut messages: usize = 0;
 
     loop {
         payload.next();
         let mut parser_output: Vec<String> = Vec::new();
+        // let mut parser_names: Vec<String> = Vec::new();
         // messages += 1;
 
         for result in &mut *results {
@@ -157,49 +179,97 @@ fn analyze_results(fuzzing_type: &FuzzingType, results: &mut Vec<FuzzingResult>)
             }
         }
 
-        if !equal {
-            let buffer = payload.get_payload();
-            let mut payload_str = String::with_capacity(buffer.len());
+        if equal {
+            continue;
+        }
 
-            for i in 0..buffer.len() {
-                match buffer[i] {
-                    0u8..0x20 => payload_str.push_str(format!("\\x{:02x}", buffer[i]).as_str()),
-                    0x7fu8..=0xff => payload_str.push_str(format!("\\x{:02x}", buffer[i]).as_str()),
-                    b => payload_str.push(b as char),
-                }
+        let buffer = payload.get_payload();
+        let mut payload_str = String::with_capacity(buffer.len());
+
+        for i in 0..buffer.len() {
+            match buffer[i] {
+                0u8..0x20 => payload_str.push_str(format!("\\x{:02x}", buffer[i]).as_str()),
+                0x7fu8..=0xff => payload_str.push_str(format!("\\x{:02x}", buffer[i]).as_str()),
+                b => payload_str.push(b as char),
+            }
+        }
+
+        // if !analyzed.contains(&payload_str) {
+        //     print!("{:20}\t", payload_str);
+        //
+        //     for output in &parser_output {
+        //         print!("{:13}\t", output);
+        //     }
+        //     println!("");
+        //     analyzed.insert(payload_str.clone());
+        // }
+
+        for i in 0..results.len() {
+            let result0 = &results[i];
+            let output0 = &parser_output[i];
+
+            if output0 == "KEY_NOT_FOUND" || output0 == "PARSE_ERROR" {
+                continue;
             }
 
-            if !analyzed.contains(&payload_str) {
-                print!("{:20}\t", payload_str);
-
-                for output in &parser_output {
-                    print!("{:13}\t", output);
+            for j in 0..results.len() {
+                if i == j {
+                    continue;
                 }
-                println!("");
-                analyzed.insert(payload_str);
+
+                let result1 = &results[j];
+                let output1 = &parser_output[j];
+
+                if output1 == "KEY_NOT_FOUND" || output1 == "PARSE_ERROR" {
+                    continue;
+                }
+
+                if output0 == output1 {
+                    continue;
+                }
+
+                if !((output0 == "1" && output1 == "2") || (output0 == "2" && output1 == "1")) {
+                    continue;
+                }
+
+                let vuln = Vulnerability {
+                    payload: payload_str.clone(),
+                    parser_0_name: result0.parser_name.clone(),
+                    parser_1_name: result1.parser_name.clone(),
+                    parser_0_output: output0.clone(),
+                    parser_1_output: output1.clone(),
+                };
+
+                vulnerabilities.insert(vuln);
             }
         }
     }
+
+    vulnerabilities
+    // .iter()
+    // .map(|v| v.clone())
+    // .collect::<Vec<Vulnerability>>()
 }
 
 pub fn analyze(args: &crate::Args) {
     let fuzzing_types = &vec![
-        FuzzingType::ReplaceOneByte,
-        FuzzingType::ReplaceTwoBytes,
-        FuzzingType::ReplaceThreeBytes,
         FuzzingType::InsertOneByte,
-        FuzzingType::InsertTwoBytes,
-        FuzzingType::InsertThreeBytes,
-        FuzzingType::ReplaceOneUnicodeByte,
-        FuzzingType::ReplaceTwoUnicodeBytes,
-        FuzzingType::ReplaceThreeUnicodeBytes,
         FuzzingType::InsertOneUnicodeByte,
+        FuzzingType::InsertTwoBytes,
         FuzzingType::InsertTwoUnicodeBytes,
+        FuzzingType::ReplaceOneByte,
+        FuzzingType::ReplaceOneUnicodeByte,
+        FuzzingType::ReplaceTwoBytes,
+        FuzzingType::ReplaceTwoUnicodeBytes,
+        FuzzingType::ReplaceThreeBytes,
+        FuzzingType::InsertThreeBytes,
+        FuzzingType::ReplaceThreeUnicodeBytes,
         FuzzingType::InsertThreeUnicodeBytes,
     ];
 
     let digest = md5::compute(args.payload.as_bytes());
     let hash: String = format!("{:x}", digest);
+    let mut vulns: HashSet<Vulnerability> = HashSet::new();
 
     for fuzzing_type in fuzzing_types {
         let files = std::fs::read_dir("../data/").expect("Could not open '../data/'");
@@ -226,60 +296,43 @@ pub fn analyze(args: &crate::Args) {
                     decoder: Decoder::new(Box::new(bytes)),
                 };
 
-                // println!("{}", result.parser_name);
-
                 results.push(result);
             }
         }
 
         results.sort_by(|a, b| a.parser_name.cmp(&b.parser_name));
-        analyze_results(fuzzing_type, &mut results);
+        for vuln in analyze_results(fuzzing_type, &mut results) {
+            vulns.insert(vuln);
+        }
+    }
 
-        // if !fs::exists("../data/").expect("Could not check if directory exists") {
-        //     fs::create_dir("../data").expect("Could not create directory");
-        // }
-        //
-        // let file_name: String = format!("../data/{}_{}.bin", client_name, fuzzing_type);
-        //
-        // if fs::exists(&file_name).expect("Could not check if file exists") {
-        //     println!("'{}' already exists. Skipping.", file_name);
-        //     continue;
-        // }
-        //
-        // let mut payload: Box<dyn Payload> = match fuzzing_type {
-        //     FuzzingType::ReplaceOneByte => Box::new(ReplaceBytes::new(&base_payload, 1)),
-        //     FuzzingType::ReplaceTwoBytes => Box::new(ReplaceBytes::new(&base_payload, 2)),
-        //     FuzzingType::ReplaceThreeBytes => Box::new(ReplaceBytes::new(&base_payload, 3)),
-        // };
+    println!();
 
-        // let mut finished: bool = false;
-        //
-        // loop {
-        //     if finished {
-        //         break;
-        //     }
-        //
-        //     if !payload.next() {
-        //         finished = true;
-        //     }
-        // }
+    //     {
+    //     a.parser_0_name
+    //         .cmp(&b.parser_0_name)
+    //         .cmp(&a.parser_1_name.cmp(&b.parser_1_name))
+    // });
 
-        // let start = std::time::Instant::now();
-        // let compressed = fuzz(stream, &args, &mut payload);
-        //
-        // println!(
-        //     "{:20} {:25}  n: {:12}k, {:7.1}k/s  time: {}s  compression: {:.1}kb, {:.1}%",
-        //     client_name,
-        //     fuzzing_type.to_string(),
-        //     compressed.message_count / 1000,
-        //     (compressed.message_count as f64) / (start.elapsed().as_millis() as f64),
-        //     start.elapsed().as_secs(),
-        //     compressed.bytes.len() as f64 / 1000.0,
-        //     compressed.bytes.len() as f64 / compressed.uncompressed_bytes as f64 * 100.0,
-        // );
-        //
-        // let mut file = fs::File::create(&file_name.as_str()).expect("Could not create file");
-        // file.write_all(&compressed.bytes)
-        //     .expect("Could not write to file");
+    let mut vulns_vec: Vec<&Vulnerability> = vulns.iter().collect();
+
+    vulns_vec.sort_by_key(|v| {
+        (
+            v.parser_0_name.clone(),
+            v.parser_1_name.clone(),
+            v.parser_0_output.clone(),
+            v.parser_1_output.clone(),
+        )
+    });
+
+    for vuln in vulns_vec {
+        println!(
+            "{}\t{}\t{}\t{}\t{}",
+            vuln.parser_0_name,
+            vuln.parser_1_name,
+            vuln.payload,
+            vuln.parser_0_output,
+            vuln.parser_1_output
+        );
     }
 }

@@ -6,7 +6,8 @@ cd json-fuzzer/
     cd ../json-fuzzer/
     cargo build -r
 
-    payload='{"q":1,"q":2}'
+    #payload='{"q":1,"q":2}'
+    payload='{"q":1\"q":2}'
     # payload='{"q":1}'
     echo -e "\n\nFuzzing $payload\n"
     cargo run -q -r -- --payload $payload &

@@ -69,25 +69,6 @@ fn fuzz(stream: &mut TcpStream, args: &Args, payload: &mut Box<dyn Payload>) -> 
             let mut sent_bytes: usize = header_bytes;
 
             for _ in 0..(in_buffer_count - (sent_messages - received_messages)) {
-                // // Send communication buffer size
-                // stream
-                //     .write_all(&u32::try_from(args.buffer_size).unwrap().to_le_bytes())
-                //     .expect("Could not write buffer size");
-                //
-                // // Send payload size
-                // stream
-                //     .write_all(
-                //         &u16::try_from(payload.get_payload().len())
-                //             .unwrap()
-                //             .to_le_bytes(),
-                //     )
-                //     .expect("Could not write buffer size");
-                //
-                // // Send batch size
-                // stream
-                //     .write_all(&batch_size.to_le_bytes())
-                //     .expect("Could not write batch size");
-
                 for _ in 0..batch_size {
                     if has_next && !payload.next() {
                         has_next = false;
@@ -201,119 +182,11 @@ fn fuzz(stream: &mut TcpStream, args: &Args, payload: &mut Box<dyn Payload>) -> 
     }
 
     compression_encoder.finish();
-    //
-    // let mut test_payload = Box::new(ReplaceBytes::new(args.payload.as_bytes(), 2));
-    // let mut decoder = Decoder::new(compression_encoder.finish().clone());
-    // has_next = true;
-    // sent_messages = 0;
-    // received_messages = 0;
-    //
-    // decoder.next_message();
-    //
-    // loop {
-    //     // Fill send_buffer with fuzzed payloads and send it to the client
-    //     if has_next && (sent_messages - received_messages) < in_buffer_count {
-    //         for _ in 0..(in_buffer_count - (sent_messages - received_messages)) {
-    //             for _ in 0..batch_size {
-    //                 if has_next && !test_payload.next() {
-    //                     has_next = false;
-    //                 }
-    //
-    //                 send_buffer[sent_bytes..(sent_bytes + test_payload.get_payload().len())]
-    //                     .copy_from_slice(&test_payload.get_payload());
-    //                 sent_bytes += test_payload.get_payload().len();
-    //             }
-    //
-    //             stream
-    //                 .write_all(
-    //                     &send_buffer[0..(test_payload.get_payload().len() * batch_size as usize)],
-    //                 )
-    //                 .expect("Write error");
-    //
-    //             sent_bytes = 0;
-    //             sent_messages += 1;
-    //         }
-    //     }
-    //
-    //     if !has_next && received_messages == sent_messages {
-    //         break;
-    //     }
-    //
-    //     // Read client response size
-    //     stream
-    //         .read_exact(&mut read_buffer[0..4])
-    //         .expect("Read error");
-    //
-    //     let batched_package_size: usize =
-    //         usize::try_from(u32::from_le_bytes(read_buffer[0..4].try_into().unwrap())).unwrap();
-    //
-    //     if batched_package_size > args.buffer_size - 4 {
-    //         panic!("Client sent too many bytes: {}", batched_package_size);
-    //     }
-    //
-    //     // Read client response
-    //     let mut byte_offset: usize = 4;
-    //     stream
-    //         .read_exact(&mut read_buffer[byte_offset..(byte_offset + batched_package_size)])
-    //         .expect("Read error");
-    //
-    //     for _i in 0..(batch_size as usize) {
-    //         let package_size: u16 = u16::from_le_bytes(
-    //             read_buffer[byte_offset..(byte_offset + 2)]
-    //                 .try_into()
-    //                 .unwrap(),
-    //         );
-    //
-    //         byte_offset += 2;
-    //         let data: &[u8] = &read_buffer[byte_offset..(byte_offset + usize::from(package_size))];
-    //         byte_offset += data.len();
-    //
-    //         let n = decoder.messages_parsed;
-    //
-    //         match decoder.next_message() {
-    //             Some(m) => {
-    //                 let eq = data.iter().zip(m.as_bytes()).all(|(a, b)| a == b);
-    //
-    //                 let mut s: String = String::new();
-    //                 for c in data {
-    //                     s += &(*c as char).to_string();
-    //                 }
-    //                 if !eq {
-    //                     eprintln!("{:02x?} != {:02x?}  {} {}", s, m, n + 1, _i);
-    //                     return compression_encoder;
-    //                 }
-    //
-    //                 // compression_encoder.add_bytes(&data);
-    //             }
-    //             None => {
-    //                 eprintln!("Decoder empty. Received {:02x?}", data);
-    //             }
-    //         }
-    //     }
-    //
-    //     received_messages += 1;
-    // }
-
-    // let compressed: Vec<u8> = compression_encoder
-    //     .finish()
-    //     .expect("Could not finish compression");
 
     return compression_encoder;
 }
 
 fn handle_client(stream: &mut TcpStream, args: &Args) {
-    // let batch_size: u16 = std::cmp::min(args.buffer_size / 128, u16::MAX as usize) as u16;
-    // let mut read_buffer: Box<Vec<u8>> = Box::new(vec![0; args.buffer_size]);
-    // let mut send_buffer: Box<Vec<u8>> = Box::new(vec![0; args.buffer_size]);
-    // let start = std::time::Instant::now();
-    // let mut read_size_buffer: [u8; 2] = [0; 2];
-    // let data: Vec<u8> = vec![0x2e; data_buffer_size.into()];
-    // let data: &[u8] = args.payload.as_bytes();
-    // let n = 1_000_000_000;
-    // let mut payload: ReplaceBytes = ReplaceBytes::new(&data, 2);
-    // let mut test_payload: ReplaceBytes = ReplaceBytes::new(&data, 2);
-    // // let mut compression_encoder = ZlibEncoder::new(Vec::new(), Compression::best());
-    // let mut compression_encoder = Encoder::new();
     let mut name_buffer: [u8; 64] = [0; 64];
     let base_payload: &[u8] = args.payload.as_bytes();
 
@@ -442,7 +315,7 @@ fn handle_client(stream: &mut TcpStream, args: &Args) {
         let compressed = fuzz(stream, &args, &mut payload);
 
         println!(
-            "{:20} {:25}  n: {:12}k, {:7.1}k/s  time: {}s  compression: {:.1}kb, {:.3}%",
+            "{:25} {:25}  n: {:10}k, {:7.1}k/s  dur: {}s  zip: {:.1}kb, {:.2}%",
             client_name,
             fuzzing_type.to_string(),
             compressed.message_count / 1000,

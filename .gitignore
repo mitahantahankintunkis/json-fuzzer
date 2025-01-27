@@ -4,3 +4,5 @@ build/
 *.csv
 *.bak
 *.lock
+*.bin
+*.ods

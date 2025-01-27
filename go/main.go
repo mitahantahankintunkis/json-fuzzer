@@ -20,38 +20,6 @@ import (
 	"github.com/valyala/fastjson"
 )
 
-// type query map[string]interface{}
-//
-// func (m query) UnmarshalJSONObject(dec *gojay.Decoder, k string) error {
-// 	i := 0
-// 	err := dec.AddInt(&i)
-//
-// 	if err != nil {
-// 		return err
-// 	}
-//
-// 	m[k] = i
-//
-// 	//str := ""
-// 	//err := dec.AddString(&str)
-//
-// 	//if err == nil {
-// 	//	m[k] = str
-//
-// 	//} else {
-// 	//	i := 0
-// 	//	err = dec.AddInt(&i)
-//
-// 	//	if err != nil {
-// 	//		return err
-// 	//	}
-//
-// 	//	m[k] = i
-// 	//}
-//
-// 	return nil
-// }
-
 var PARSE_ERROR = []byte("PARSE_ERROR")
 var KEY_NOT_FOUND = []byte("KEY_NOT_FOUND")
 
@@ -79,11 +47,9 @@ type std_query struct {
 var std_decoded iter_query
 
 func std_parser(encoded []byte) []byte {
-	// var decoded map[string]interface{}
-	// type std_query struct {
-	// 	q *int
-	// }
-	// var decoded std_query
+	std_decoded.Q = nil
+
+	// var std_decoded map[string]interface{}
 	err := std_json.Unmarshal(encoded, &std_decoded)
 
 	if err != nil {
@@ -96,12 +62,6 @@ func std_parser(encoded []byte) []byte {
 
 	return []byte(fmt.Sprint(*std_decoded.Q))
 
-	// if decoded.q != nil {
-	// 	fmt.Println(*decoded.q)
-	// 	message = []byte(fmt.Sprint(*decoded.q))
-	// } else {
-	// 	message = []byte("KEY_NOT_FOUND")
-	// }
 	// val, ok := decoded["q"]
 	//
 	// if !ok {
@@ -142,6 +102,8 @@ type iter_query struct {
 var json_iterator_decoded iter_query
 
 func json_iterator_parser(encoded []byte) []byte {
+	json_iterator_decoded.Q = nil
+
 	// var decoded map[string]interface{}
 	var json = jsoniter.ConfigCompatibleWithStandardLibrary
 	err := json.Unmarshal(encoded, &json_iterator_decoded)
@@ -353,12 +315,21 @@ func main() {
 	}
 
 	// Connect to the server
-	conn, err := net.Dial("tcp", "localhost:5000")
-	// conn, err := net.Dial("tcp", "[::1]:5000")
+	var conn net.Conn
 
-	if err != nil {
-		fmt.Println(err)
-		return
+	for {
+		c, err := net.Dial("tcp", "localhost:5000")
+		// conn, err := net.Dial("tcp", "[::1]:5000")
+
+		if err != nil {
+			time.Sleep(time.Millisecond * 100)
+			continue
+			// fmt.Println(err)
+			// return
+		}
+
+		conn = c
+		break
 	}
 
 	defer conn.Close()
@@ -388,7 +359,7 @@ func main() {
 	// fmt.Printf("Header: %v   (%d, %d, %d)\n", header, buffer_size, payload_size, batch_size)
 
 	for {
-		conn.SetDeadline(time.Now().Add(time.Second * 60))
+		// conn.SetDeadline(time.Now().Add(time.Second * 60))
 
 		// Read header
 		header := make([]byte, 8)

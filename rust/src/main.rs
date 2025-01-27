@@ -4,7 +4,17 @@ use std::io::prelude::*;
 use std::net::TcpStream;
 
 fn main() -> std::io::Result<()> {
-    let mut stream = TcpStream::connect("127.0.0.1:5000")?;
+    let mut stream: TcpStream;
+
+    loop {
+        if let Ok(s) = TcpStream::connect("127.0.0.1:5000") {
+            stream = s;
+            break;
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
     stream.set_nodelay(true)?;
 
     let mut name_buffer: [u8; 64] = [0; 64];
