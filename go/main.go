@@ -49,7 +49,13 @@ var std_decoded iter_query
 func std_parser(encoded []byte) []byte {
 	std_decoded.Q = nil
 
-	// var std_decoded map[string]interface{}
+	// var decoded map[string]interface{}
+	// err := std_json.Unmarshal(encoded, &decoded)
+	// fmt.Println("Valid: ", std_json.Valid(encoded))
+	// for k, m := range decoded {
+	// 	fmt.Println(k, " ", m)
+	// }
+
 	err := std_json.Unmarshal(encoded, &std_decoded)
 
 	if err != nil {
@@ -102,7 +108,7 @@ type iter_query struct {
 var json_iterator_decoded iter_query
 
 func json_iterator_parser(encoded []byte) []byte {
-	json_iterator_decoded.Q = nil
+	// json_iterator_decoded.Q = nil
 
 	// var decoded map[string]interface{}
 	var json = jsoniter.ConfigCompatibleWithStandardLibrary
@@ -133,6 +139,8 @@ func tidwall_gjson_parser(encoded []byte) []byte {
 	if !value.Exists() || value.Type != gjson.Number {
 		return KEY_NOT_FOUND
 	}
+
+	fmt.Println("Valid: ", gjson.Valid(string(encoded)))
 
 	return []byte(value.String())
 }
