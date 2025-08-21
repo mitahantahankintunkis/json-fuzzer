@@ -48,7 +48,7 @@ with open('../analyzed/parsing_mismatches.csv', 'r') as f:
     keys = sorted(keys)
 
     print('Gitlab Markdown table:')
-    print('|Parser1|Parser2|JSON|P1\\["q"]|P2\\["q"]|')
+    print('|P1|P2|JSON|P1\\["q"]|P2\\["q"]|')
     print('|-------|-------|----|:-----:|:-----:|')
 
     for key in keys:
@@ -75,7 +75,8 @@ with open('../analyzed/parsing_mismatches.csv', 'r') as f:
             if l1 in parser_lookup:
                 l1 = f'[{l1}]({parser_lookup[l1]})'
 
-            print(f'|{l0}|{l1}|<pre lang="json">{best[1]}</pre>|`{best[2]}`|`{best[3]}`|')
+            # print(f'|{l0}|{l1}|<pre lang="json">{best[1]}</pre>|`{best[2]}`|`{best[3]}`|')
+            print(f'|{l0}|{l1}|{best[1]}|{best[2]}|{best[3]}|')
 
     # m = [
     # [1,0,2,0,0],
