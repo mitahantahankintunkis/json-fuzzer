@@ -1,0 +1,159 @@
+# Payloads to fuzz
+
+# Base case
+[[payloads]]
+name = "valid-no-fuzz"
+payload = '{"q":42}'
+datatype = "Int"
+key = "q"
+
+
+# Simple insertion
+[[payloads]]
+name = "duplicate_keys_insert_single_byte"
+payload = '{"q":2,"q":3}'
+datatype = "Int"
+key = "q"
+[[payloads.fuzz]]
+
+[[payloads]]
+name = "duplicate_keys_insert_two_bytes"
+payload = '{"q":2,"q":3}'
+datatype = "Int"
+key = "q"
+[[payloads.fuzz]]
+[[payloads.fuzz]]
+
+
+# Simple replace
+[[payloads]]
+name = "duplicate_keys_replace_single_byte"
+payload = '{"q":2,"q":3}'
+datatype = "Int"
+key = "q"
+[[payloads.fuzz]]
+fuzz_mode = "ReplaceAllPossible"
+
+[[payloads]]
+name = "duplicate_keys_replace_two_bytes"
+payload = '{"q":2,"q":3}'
+datatype = "Int"
+key = "q"
+[[payloads.fuzz]]
+fuzz_mode = "ReplaceAllPossible"
+[[payloads.fuzz]]
+fuzz_mode = "ReplaceAllPossible"
+
+
+# Individual key fuzzing
+# [[payloads]]
+# name = "duplicate_keys_replace_four_bytes0"
+# payload = '{"@...":2,"q":3}'
+# datatype = "Int"
+# key = "q"
+# [[payloads.fuzz]]
+# fuzz_mode = { ReplaceCharacters = '@' }
+# bytes = 4
+#
+# [[payloads]]
+# name = "duplicate_keys_replace_four_bytes1"
+# payload = '{"q":2,"@...":3}'
+# datatype = "Int"
+# key = "q"
+# [[payloads.fuzz]]
+# fuzz_mode = { ReplaceCharacters = '@' }
+# bytes = 4
+
+
+# Unicode string enconding
+[[payloads]]
+name = "duplicate_keys_insert_unicode"
+payload = '{"q":2,"q":3}'
+datatype = "Int"
+key = "q"
+[[payloads.fuzz]]
+fuzz_range = { Characters = {chars = '0123456789abcdef', length = 4}}
+prefix = '\u'
+bytes = 4
+
+[[payloads]]
+name = "duplicate_keys_replace_unicode"
+payload = '{"q":2,"q":3}'
+datatype = "Int"
+key = "q"
+[[payloads.fuzz]]
+fuzz_range = { Characters = {chars = '0123456789abcdef', length = 4}}
+prefix = '\u'
+bytes = 4
+
+[[payloads]]
+name = "duplicate_keys_replace_key0_unicode"
+payload = '{"@.....":2,"q":3}'
+datatype = "Int"
+key = "q"
+[[payloads.fuzz]]
+fuzz_range = { Characters = {chars = '0123456789abcdef', length = 4}}
+fuzz_mode = { ReplaceCharacters = '@' }
+prefix = '\u'
+bytes = 4
+
+[[payloads]]
+name = "duplicate_keys_replace_key1_unicode"
+payload = '{"q":2,"@.....":3}'
+datatype = "Int"
+key = "q"
+[[payloads.fuzz]]
+fuzz_range = { Characters = {chars = '0123456789abcdef', length = 4}}
+fuzz_mode = { ReplaceCharacters = '@' }
+prefix = '\u'
+bytes = 4
+
+
+# URL string enconding
+[[payloads]]
+name = "duplicate_keys_insert_url"
+payload = '{"q":2,"q":3}'
+datatype = "Int"
+key = "q"
+[[payloads.fuzz]]
+fuzz_range = { Characters = {chars = '0123456789abcdef', length = 2}}
+prefix = '%'
+bytes = 2
+
+[[payloads]]
+name = "duplicate_keys_insert_two_url"
+payload = '{"q":2,"q":3}'
+datatype = "Int"
+key = "q"
+[[payloads.fuzz]]
+fuzz_range = { Characters = {chars = '0123456789abcdef', length = 2}}
+prefix = '%'
+bytes = 2
+[[payloads.fuzz]]
+fuzz_range = { Characters = {chars = '0123456789abcdef', length = 2}}
+prefix = '%'
+bytes = 2
+
+[[payloads]]
+name = "duplicate_keys_replace_url"
+payload = '{"q":2,"q":3}'
+datatype = "Int"
+key = "q"
+[[payloads.fuzz]]
+fuzz_range = { Characters = {chars = '0123456789abcdef', length = 2}}
+prefix = '%'
+bytes = 2
+
+[[payloads]]
+name = "duplicate_keys_replace_two_url"
+payload = '{"q":2,"q":3}'
+datatype = "Int"
+key = "q"
+[[payloads.fuzz]]
+fuzz_range = { Characters = {chars = '0123456789abcdef', length = 2}}
+prefix = '%'
+bytes = 2
+[[payloads.fuzz]]
+fuzz_range = { Characters = {chars = '0123456789abcdef', length = 2}}
+prefix = '%'
+bytes = 2

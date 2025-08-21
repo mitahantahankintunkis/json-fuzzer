@@ -1,12 +1,16 @@
 use crate::compression::*;
 use crate::payload::*;
+use crate::util::byte_to_string;
 // use regex::Regex;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
-use std::ops::Range;
+// use std::path::Path;
+// use std::ops::Range;
 
+#[derive(Clone)]
 struct FuzzingResult {
     parser_name: String,
+    // test_name: String,
     decoder: Decoder,
 }
 
@@ -45,116 +49,62 @@ impl PartialEq for Vulnerability {
 impl Eq for Vulnerability {}
 
 fn analyze_results(
-    fuzzing_type: &FuzzingType,
+    payload_config: PayloadConfig,
     results: &mut Vec<FuzzingResult>,
 ) -> HashSet<Vulnerability> {
     if results.len() == 0 {
         return HashSet::new();
     }
 
-    // print!("{:20}\t", "payload");
-    //
-    let mut base_payload: &str = "";
-    //
-    for result in &mut *results {
-        // print!("{:20}\t", result.parser_name);
-        base_payload = result.decoder.next_message().unwrap();
-    }
-    //
-    // println!("");
+    // for result in &mut *results {
+    //     result.decoder.next_message().unwrap();
+    // }
 
-    let mut payload: Box<dyn Payload> = match fuzzing_type {
-        FuzzingType::ReplaceOneByte => Box::new(ReplaceBytes::new(base_payload.as_bytes(), 1)),
-        FuzzingType::ReplaceTwoBytes => Box::new(ReplaceBytes::new(base_payload.as_bytes(), 2)),
-        FuzzingType::ReplaceThreeBytes => Box::new(ReplaceBytes::new(base_payload.as_bytes(), 3)),
-        FuzzingType::InsertOneByte => Box::new(InsertBytes::new(base_payload.as_bytes(), 1)),
-        FuzzingType::InsertTwoBytes => Box::new(InsertBytes::new(base_payload.as_bytes(), 2)),
-        FuzzingType::InsertThreeBytes => Box::new(InsertBytes::new(base_payload.as_bytes(), 3)),
-        FuzzingType::ReplaceOneUnicodeByte => Box::new(ReplaceFormatted::new(
-            base_payload.as_bytes(),
-            1,
-            Range::<usize> {
-                start: 0,
-                end: 0x10000,
-            },
-            |b| format!("\\u{:04x}", b),
-        )),
-        FuzzingType::ReplaceTwoUnicodeBytes => Box::new(ReplaceFormatted::new(
-            base_payload.as_bytes(),
-            1,
-            Range::<usize> {
-                start: 0,
-                end: 0x10000,
-            },
-            |b| format!("\\u{:04x}", b),
-        )),
-
-        FuzzingType::ReplaceThreeUnicodeBytes => Box::new(ReplaceFormatted::new(
-            base_payload.as_bytes(),
-            1,
-            Range::<usize> {
-                start: 0,
-                end: 0x10000,
-            },
-            |b| format!("\\u{:04x}", b),
-        )),
-
-        FuzzingType::InsertOneUnicodeByte => Box::new(ReplaceFormatted::new(
-            base_payload.as_bytes(),
-            1,
-            Range::<usize> {
-                start: 0,
-                end: 0x10000,
-            },
-            |b| format!("\\u{:04x}", b),
-        )),
-
-        FuzzingType::InsertTwoUnicodeBytes => Box::new(ReplaceFormatted::new(
-            base_payload.as_bytes(),
-            1,
-            Range::<usize> {
-                start: 0,
-                end: 0x10000,
-            },
-            |b| format!("\\u{:04x}", b),
-        )),
-
-        FuzzingType::InsertThreeUnicodeBytes => Box::new(ReplaceFormatted::new(
-            base_payload.as_bytes(),
-            1,
-            Range::<usize> {
-                start: 0,
-                end: 0x10000,
-            },
-            |b| format!("\\u{:04x}", b),
-        )),
-    };
-
-    // let mut analyzed: HashSet<String> = HashSet::new();
     let mut vulnerabilities: HashSet<Vulnerability> = HashSet::new();
 
-    // let mut messages: usize = 0;
+    let mut payload: Payload = payload_config.clone().into();
+
+    if results.len() == 0 {
+        panic!("No results for {}", payload_config.name);
+    }
 
     loop {
-        payload.next();
         let mut parser_output: Vec<String> = Vec::new();
-        // let mut parser_names: Vec<String> = Vec::new();
-        // messages += 1;
 
         for result in &mut *results {
             match result.decoder.next_message() {
-                Some(r) => parser_output.push(r.to_string()),
+                Some(r) => {
+                    // println!(
+                    //     "{} {} {}",
+                    //     payload_config.name,
+                    //     payload
+                    //         .into_iter()
+                    //         .map(|c| byte_to_string(c))
+                    //         .collect::<Vec<String>>()
+                    //         .join(""),
+                    //     r.to_string()
+                    // );
+                    parser_output.push(r.to_string());
+                }
                 None => {
-                    // println!("Parsed: {} {}", messages, result.decoder.messages_parsed);
-
-                    for test_result in &mut *results {
-                        if test_result.decoder.next_message().is_some() {
-                            eprintln!("Result decoder size mismatch");
-                        }
-                    }
+                    // for test_result in &mut *results {
+                    //     if test_result.decoder.next_message().is_some() {
+                    //         eprintln!("Result decoder size mismatch");
+                    //     }
+                    // }
                     break;
                 }
             }
+        }
+
+        let mut payload_str = String::with_capacity(64);
+
+        for byte in payload.into_iter() {
+            payload_str.push_str(&byte_to_string(byte));
+        }
+
+        if payload.advance().is_err() {
+            break;
         }
 
         if parser_output.len() != results.len() {
@@ -183,27 +133,6 @@ fn analyze_results(
             continue;
         }
 
-        let buffer = payload.get_payload();
-        let mut payload_str = String::with_capacity(buffer.len());
-
-        for i in 0..buffer.len() {
-            match buffer[i] {
-                0u8..0x20 => payload_str.push_str(format!("\\x{:02x}", buffer[i]).as_str()),
-                0x7fu8..=0xff => payload_str.push_str(format!("\\x{:02x}", buffer[i]).as_str()),
-                b => payload_str.push(b as char),
-            }
-        }
-
-        // if !analyzed.contains(&payload_str) {
-        //     print!("{:20}\t", payload_str);
-        //
-        //     for output in &parser_output {
-        //         print!("{:13}\t", output);
-        //     }
-        //     println!("");
-        //     analyzed.insert(payload_str.clone());
-        // }
-
         for i in 0..results.len() {
             let result0 = &results[i];
             let output0 = &parser_output[i];
@@ -228,7 +157,7 @@ fn analyze_results(
                     continue;
                 }
 
-                if !((output0 == "1" && output1 == "2") || (output0 == "2" && output1 == "1")) {
+                if !((output0 == "2" && output1 == "3") || (output0 == "3" && output1 == "2")) {
                     continue;
                 }
 
@@ -240,56 +169,53 @@ fn analyze_results(
                     parser_1_output: output1.clone(),
                 };
 
-                vulnerabilities.insert(vuln);
+                match vulnerabilities.get(&vuln) {
+                    Some(best_vuln) => {
+                        if vuln.payload.len() < best_vuln.payload.len() {
+                            vulnerabilities.insert(vuln);
+                        }
+                    }
+                    None => {
+                        vulnerabilities.insert(vuln);
+                    }
+                }
             }
         }
     }
 
     vulnerabilities
-    // .iter()
-    // .map(|v| v.clone())
-    // .collect::<Vec<Vulnerability>>()
 }
 
-pub fn analyze(args: &crate::Args) {
-    let fuzzing_types = &vec![
-        FuzzingType::InsertOneByte,
-        FuzzingType::InsertOneUnicodeByte,
-        FuzzingType::InsertTwoBytes,
-        FuzzingType::InsertTwoUnicodeBytes,
-        FuzzingType::ReplaceOneByte,
-        FuzzingType::ReplaceOneUnicodeByte,
-        FuzzingType::ReplaceTwoBytes,
-        FuzzingType::ReplaceTwoUnicodeBytes,
-        FuzzingType::ReplaceThreeBytes,
-        FuzzingType::InsertThreeBytes,
-        FuzzingType::ReplaceThreeUnicodeBytes,
-        FuzzingType::InsertThreeUnicodeBytes,
-    ];
-
-    let digest = md5::compute(args.payload.as_bytes());
-    let hash: String = format!("{:x}", digest);
+pub fn analyze(_args: &crate::Args) {
     let mut vulns: HashSet<Vulnerability> = HashSet::new();
 
-    for fuzzing_type in fuzzing_types {
+    let config = load_payloads();
+
+    for payload_config in &config.payloads {
         let files = std::fs::read_dir("../data/").expect("Could not open '../data/'");
         let mut results: Vec<FuzzingResult> = Vec::new();
 
         for file in files {
             if let Ok(f) = file {
                 let file_name: String = f.file_name().to_str().unwrap().to_string();
-                if !file_name.contains(&hash) || !file_name.contains(&fuzzing_type.to_string()) {
+                if !file_name.contains(&payload_config.name) {
                     continue;
                 }
 
-                let split: Vec<&str> = file_name.splitn(3, '_').collect();
+                let split: Vec<&str> = file_name.splitn(2, '-').collect();
 
-                if split.len() != 3 {
+                if split.len() != 2 {
                     eprintln!("Malformed filename '{}'", file_name);
                     continue;
                 }
 
                 let bytes = std::fs::read(f.path()).expect("Could not read file");
+
+                // TODO - remove
+                if bytes.len() >= 10_000_000 {
+                    println!("Skipping {} due to size", file_name);
+                    continue;
+                }
 
                 let result = FuzzingResult {
                     parser_name: split[0].to_string(),
@@ -301,18 +227,10 @@ pub fn analyze(args: &crate::Args) {
         }
 
         results.sort_by(|a, b| a.parser_name.cmp(&b.parser_name));
-        for vuln in analyze_results(fuzzing_type, &mut results) {
+        for vuln in analyze_results(payload_config.clone(), &mut results) {
             vulns.insert(vuln);
         }
     }
-
-    println!();
-
-    //     {
-    //     a.parser_0_name
-    //         .cmp(&b.parser_0_name)
-    //         .cmp(&a.parser_1_name.cmp(&b.parser_1_name))
-    // });
 
     let mut vulns_vec: Vec<&Vulnerability> = vulns.iter().collect();
 

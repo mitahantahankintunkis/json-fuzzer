@@ -1,7 +1,12 @@
 target/
 build/
+data/
+.local/
+venv/
 
-*.csv
+/clients/c/client
+
+*.o
 *.bak
 *.lock
 *.bin

@@ -6,6 +6,7 @@ pub struct Encoder {
     pub message_count: u64,
 }
 
+#[derive(Clone)]
 pub struct Decoder {
     pub bytes: Box<Vec<u8>>,
     pub messages_parsed: usize,
