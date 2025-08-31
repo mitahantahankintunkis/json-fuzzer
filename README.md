@@ -3,49 +3,71 @@
 **Cross-language parser interoperability**
 
 **Student: Oula Kivalo**
-**Supervisor: _\<?>_**
+**Supervisor: _TODO_**
 
 
-## Aim and Objectives
-The aim of this thesis is to test the interoperability of different parser implementations across multiple programming languages through fuzz testing. While the rest of the proposal focuses on JSON parsers, the thesis can also focus on other protocols or data formats in case the supervisor prefers them.
+## Aim and objectives
+*Note: While this proposal focuses on JSON parsers, the subject may be changed to other data formats or protocols at the supervisor's discretion.*
 
-JSON has become the de facto standard for data interchange on the internet. As such, multiple JSON parsers have been developed across different programming languages. With the rise of microservice-based cloud architectures, where small independent services often communicate via JSON, different parser implementations may be used to parse the same data. If an attacker can inject malicious JSON payloads into such communication, inconsistencies in parser behavior may enable privilege escalation, denial-of-service attacks, or other vulnerabilities\[4].
+JavaScript Object Notation(JSON) has become the de facto standard for data interchange on the internet, and as such, multiple parsers have been developed for it across programming languages. With the rise of microservice-based cloud architectures, where small independent services often utilize JSON for communication, these different parser implementations may be used to parse the same inputs. If a malicious actor is able to inject JSON data into such communication, inconsistencies in parser behavior can be exploited, potentially enabling privilege escalation, denial-of-service attacks, or other vulnerabilities\[4].
 
-Despite the popularity of JSON, academic research on parser interoperability is surprisingly limited\[1]. Most prior work has been done by independent security researchers\[2]\[3].
+Despite the widespread use of JSON, academic research on JSON parser interoperability is surprisingly limited\[1]. Most prior work has been carried out by independent security researchers, though their findings are already several years old and may be outdated\[2]\[3]. This thesis aims to further this research by documenting interoperability issues across different parser implementations in multiple programming languages.
 
 
-## Goals and Contributions
-This thesis aims to find parsing mismatches between parsers which may lead to vulnerabilities. The main contribution of the thesis will be a table similar as in [Results so far](#results-so-far), and other possible vulnerabilities found in individual parsers.
+## Goals and contributions
+The main goal of the thesis is to document discrepancies between parsing results that may lead to vulnerabilities. These results will be compiled into a compatibility matrix showing which parsers should not be used together. An example of this matrix can be found in [Preliminary results](#preliminary-results). A secondary goal is to search for vulnerabilities in individual parsers, although no results are guaranteed for this.
 
-The goal is to test 30+ parsers across 6+ languages which will be selected from [json.org](https://json.org) and GitHub based on their popularity.
+The goal is to test at least 40 parsers across 7 to 10 languages which will be selected from [json.org](https://json.org) and GitHub based on their popularity. The research may also be expanded to include JSON parsers in SQL database engines such as SQLite and PostgreSQL.
 
 
 ## Methodology
-Research is done using a custom fuzzing application. If the time allows, further research will be done using Google's BigQuery to find open source applications using vulnerable JSON parsers. These can then be manually reviewed to see if the results found can lead to vulnerabilities in them.
+Research will be focused on testing how different parsers handle different character encodings and duplicate keys in JSON objects. Research will be conducted using a custom fuzzing solution, which mutates different test cases selected from test suites of popular parsers and edge cases identified by the JSON specification\[5]. These mutated test cases will be be parsed with different parsers, whose results and execution times will be stored for future analyzing.
 
-### Work Completed So Far
-This project contains a proof-of-concept fuzzing appliciation which is capable of testing some tens of millions of test cases per second across different languages and parsers.
 
-The project consists of three main components:
+## Schedule
+I am aiming to complete the thesis between December and March. I have completed my studies, with the exception of two study points, and I am not working at the moment. Thus, I am able to put my full focus on the thesis.
 
-* **Fuzzer**: A Rust-based application which generates test cases and distributes them to parser clients via TCP sockets. Test cases are based on templates defined in [./payloads.toml](payloads.toml) and mutated according to configuration parameters.
+|Task|Duration|
+|----|--------|
+|Research|1-3 weeks|
+|Programming|3-4 weeks|
+|Fuzzing and analyzing results|4-5 weeks|
+|Writing the paper|6-10 weeks|
 
-The fuzzer can still be optimized further and needs new features for more convoluted test cases.
+*Table 1: Rough time estimates for different tasks in the thesis. Some task may have overlap between each other.*
 
-* **Clients**: Each language has their own client which contains multiple different parsers. Currently, four clients are implemented for languages Rust, Go, Python, and C. These clients contain a total of 18 different parsers.
 
-* **Analyzer**: A naive and limited implementation written in Rust. Compares the results produced by different parsers for each test case and saves interesting ones to `.csv` files for manual review.
+## Work completed so far
+This project includes a proof-of-concept fuzzing application capable of testing tens of millions of test cases per second across different languages and parsers.
 
-Currently only finds the most obvious cases of where two parsers produce different outputs when parsing the same input.
+The project currently consists of three main components:
+
+* **Fuzzer**: A Rust-based application that generates test cases and distributes them to parser clients via TCP sockets. Test cases are based on templates defined in [./payloads.toml](payloads.toml) and mutated according to configuration parameters.\
+The fuzzer can be further optimized and needs new features for more comples test cases.
+
+* **Clients**: Each language has its own client that includes multiple parsers.\
+Currently, four clients are implemented for Rust, Go, Python, and C, containing a total of 19 different parsers.
+
+* **Analyzer**: A naive and limited implementation written in Rust that compares results produced by different parsers for each test case and saves interesting ones to `.csv` files for manual review.\
+Currently, only detects the most obvious cases where two parsers produce different outputs for the same input.
+
+
+### Preliminary results
+The project currently focuses on investigating how different parsers handle JSON objects containing duplicate keys. The latest JSON specification does not specify the expected behavior for duplicate keys, leaving it to be implementation specific\[5]. This ambiguity has led to vulnerabilities before, for example in Apache CouchDB, where inconsistencies between Erlang and Javascript JSON parsers enabled an attacker to potentially gain administrative access to any bublic-facing CouchDB instance\[4].
+
+The project has so far found 226 parser combinations out of 361 possible (63%) where parsers return different values in JSON objects when querying for the same key. These cases are listed in the figure and table below.
 
 
 ### Preliminary Results
-#### Cross-Library JSON Parsing Mismatches
-The project has currently found 210 cases where parsers retrieve different values in JSON objects when querying for the same key. These cases are listed in the figure and table below.
+Our current work investigates how different parsers handle JSON objects containing duplicate keys. The latest JSON specification does not define the expected behavior in such cases, leaving it to individual implementations\[5]. This ambiguity has previously led to security vulnerabilities—for example, in Apache CouchDB, where inconsistencies between Erlang and JavaScript JSON parsers enabled attackers to potentially gain 
+
+So far, our experiments reveal that in 226 out of 361 possible parser combinations (63%), the parsers return different values for the same key when duplicates are present. These discrepancies are summarized in the figure and table below.
+
+
 
 ![JSON parsing mismatches](paper/figures/parsing_mismatches.png "JSON parsing mismatches")
 
-*Figure 1: Parsing mismatches. The matrix has a cell colored in blue if the parsers labeled in the cell's column and row can access different values when querying the same key in the same JSON object.*
+*Figure 1: Parsing mismatches. A cell colored in blue if the parsers in the corresponding column and row can retrieve different values when querying the same key in the same JSON object.*
 
 |P1|P2|JSON|P1\["q"]|P2\["q"]|
 |-------|-------|----|:-----:|:-----:|
@@ -62,6 +84,7 @@ The project has currently found 210 cases where parsers retrieve different value
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[python_json](https://docs.python.org/3/library/json.html)|{"q":3,"q":2}|3|2|
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[python_msgspec](https://github.com/jcrist/msgspec)|{"q":3,"q":2}|3|2|
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[python_orjson](https://github.com/ijl/orjson)|{"q":3,"q":2}|3|2|
+|[c_cjson](https://github.com/DaveGamble/cJSON)|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|{"q":3,"q":2}|3|2|
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[python_simplejson](https://github.com/simplejson/simplejson)|{"q":3,"q":2}|3|2|
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[python_ujson](https://github.com/ultrajson/ultrajson)|{"q":3,"q":2}|3|2|
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[rust_json](https://github.com/maciejhirsz/json-rust)|{"q":3,"q":2}|3|2|
@@ -87,6 +110,7 @@ The project has currently found 210 cases where parsers retrieve different value
 |[c_json_parser](https://github.com/json-parser/json-parser)|[python_json](https://docs.python.org/3/library/json.html)|{"q":2," q":3}|3|2|
 |[c_json_parser](https://github.com/json-parser/json-parser)|[python_msgspec](https://github.com/jcrist/msgspec)|{"q":2," q":3}|3|2|
 |[c_json_parser](https://github.com/json-parser/json-parser)|[python_orjson](https://github.com/ijl/orjson)|{"q":2," q":3}|3|2|
+|[c_json_parser](https://github.com/json-parser/json-parser)|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|{"q":2," q":3}|3|2|
 |[c_json_parser](https://github.com/json-parser/json-parser)|[python_simplejson](https://github.com/simplejson/simplejson)|{"q":2," q":3}|3|2|
 |[c_json_parser](https://github.com/json-parser/json-parser)|[python_ujson](https://github.com/ultrajson/ultrajson)|{"q":2,"\x01q":3}|3|2|
 |[c_json_parser](https://github.com/json-parser/json-parser)|[rust_json](https://github.com/maciejhirsz/json-rust)|{"q":2," q":3}|3|2|
@@ -103,6 +127,7 @@ The project has currently found 210 cases where parsers retrieve different value
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[python_json](https://docs.python.org/3/library/json.html)|{"q":3,"q":2}|3|2|
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[python_msgspec](https://github.com/jcrist/msgspec)|{"q":3,"q":2}|3|2|
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[python_orjson](https://github.com/ijl/orjson)|{"q":3,"q":2}|3|2|
+|[go_buger_jsonparser](https://github.com/buger/jsonparser)|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|{"q":3,"q":2}|3|2|
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[python_simplejson](https://github.com/simplejson/simplejson)|{"q":3,"q":2}|3|2|
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[python_ujson](https://github.com/ultrajson/ultrajson)|{"q":3,"q":2}|3|2|
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[rust_json](https://github.com/maciejhirsz/json-rust)|{"q":3,"q":2}|3|2|
@@ -127,6 +152,7 @@ The project has currently found 210 cases where parsers retrieve different value
 |[go_json_iterator](https://github.com/json-iterator/go)|[python_json](https://docs.python.org/3/library/json.html)|{"q":2,"Q":3}|3|2|
 |[go_json_iterator](https://github.com/json-iterator/go)|[python_msgspec](https://github.com/jcrist/msgspec)|{"q":2,"Q":3}|3|2|
 |[go_json_iterator](https://github.com/json-iterator/go)|[python_orjson](https://github.com/ijl/orjson)|{"q":2,"Q":3}|3|2|
+|[go_json_iterator](https://github.com/json-iterator/go)|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|{"q":2,"Q":3}|3|2|
 |[go_json_iterator](https://github.com/json-iterator/go)|[python_simplejson](https://github.com/simplejson/simplejson)|{"q":2,"Q":3}|3|2|
 |[go_json_iterator](https://github.com/json-iterator/go)|[python_ujson](https://github.com/ultrajson/ultrajson)|{"q":2,"Q":3}|3|2|
 |[go_json_iterator](https://github.com/json-iterator/go)|[rust_json](https://github.com/maciejhirsz/json-rust)|{"q":2,"Q":3}|3|2|
@@ -143,6 +169,7 @@ The project has currently found 210 cases where parsers retrieve different value
 |[go_std](https://pkg.go.dev/encoding/json)|[python_json](https://docs.python.org/3/library/json.html)|{"q":2,"Q":3}|3|2|
 |[go_std](https://pkg.go.dev/encoding/json)|[python_msgspec](https://github.com/jcrist/msgspec)|{"q":2,"Q":3}|3|2|
 |[go_std](https://pkg.go.dev/encoding/json)|[python_orjson](https://github.com/ijl/orjson)|{"q":2,"Q":3}|3|2|
+|[go_std](https://pkg.go.dev/encoding/json)|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|{"q":2,"Q":3}|3|2|
 |[go_std](https://pkg.go.dev/encoding/json)|[python_simplejson](https://github.com/simplejson/simplejson)|{"q":2,"Q":3}|3|2|
 |[go_std](https://pkg.go.dev/encoding/json)|[python_ujson](https://github.com/ultrajson/ultrajson)|{"q":2,"Q":3}|3|2|
 |[go_std](https://pkg.go.dev/encoding/json)|[rust_json](https://github.com/maciejhirsz/json-rust)|{"q":2,"Q":3}|3|2|
@@ -167,6 +194,7 @@ The project has currently found 210 cases where parsers retrieve different value
 |[go_tidwall_gjson](https://github.com/tidwall/gjson)|[python_json](https://docs.python.org/3/library/json.html)|{"q":3,"q":2}|3|2|
 |[go_tidwall_gjson](https://github.com/tidwall/gjson)|[python_msgspec](https://github.com/jcrist/msgspec)|{"q":3,"q":2}|3|2|
 |[go_tidwall_gjson](https://github.com/tidwall/gjson)|[python_orjson](https://github.com/ijl/orjson)|{"q":3,"q":2}|3|2|
+|[go_tidwall_gjson](https://github.com/tidwall/gjson)|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|{"q":3,"q":2}|3|2|
 |[go_tidwall_gjson](https://github.com/tidwall/gjson)|[python_simplejson](https://github.com/simplejson/simplejson)|{"q":3,"q":2}|3|2|
 |[go_tidwall_gjson](https://github.com/tidwall/gjson)|[python_ujson](https://github.com/ultrajson/ultrajson)|{"q":3,"q":2}|3|2|
 |[go_tidwall_gjson](https://github.com/tidwall/gjson)|[rust_json](https://github.com/maciejhirsz/json-rust)|{"q":3,"q":2}|3|2|
@@ -182,6 +210,7 @@ The project has currently found 210 cases where parsers retrieve different value
 |[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[python_json](https://docs.python.org/3/library/json.html)|{"q":3,"q":2}|3|2|
 |[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[python_msgspec](https://github.com/jcrist/msgspec)|{"q":3,"q":2}|3|2|
 |[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[python_orjson](https://github.com/ijl/orjson)|{"q":3,"q":2}|3|2|
+|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|{"q":3,"q":2}|3|2|
 |[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[python_simplejson](https://github.com/simplejson/simplejson)|{"q":3,"q":2}|3|2|
 |[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[python_ujson](https://github.com/ultrajson/ultrajson)|{"q":3,"q":2}|3|2|
 |[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[rust_json](https://github.com/maciejhirsz/json-rust)|{"q":3,"q":2}|3|2|
@@ -199,6 +228,7 @@ The project has currently found 210 cases where parsers retrieve different value
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[python_json](https://docs.python.org/3/library/json.html)|{"q":3,"q":2}|3|2|
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[python_msgspec](https://github.com/jcrist/msgspec)|{"q":3,"q":2}|3|2|
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[python_orjson](https://github.com/ijl/orjson)|{"q":3,"q":2}|3|2|
+|[go_valyala_fastjson](https://github.com/valyala/fastjson)|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|{"q":3,"q":2}|3|2|
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[python_simplejson](https://github.com/simplejson/simplejson)|{"q":3,"q":2}|3|2|
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[python_ujson](https://github.com/ultrajson/ultrajson)|{"q":3,"q":2}|3|2|
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[rust_json](https://github.com/maciejhirsz/json-rust)|{"q":3,"q":2}|3|2|
@@ -227,6 +257,14 @@ The project has currently found 210 cases where parsers retrieve different value
 |[python_orjson](https://github.com/ijl/orjson)|[go_tidwall_gjson](https://github.com/tidwall/gjson)|{"q":3,"q":2}|2|3|
 |[python_orjson](https://github.com/ijl/orjson)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"q":3,"q":2}|2|3|
 |[python_orjson](https://github.com/ijl/orjson)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"q":3,"q":2}|2|3|
+|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q":3,"q":2}|2|3|
+|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":2," q":3}|2|3|
+|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q":3,"q":2}|2|3|
+|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":2,"Q":3}|2|3|
+|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|[go_std](https://pkg.go.dev/encoding/json)|{"q":2,"Q":3}|2|3|
+|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|[go_tidwall_gjson](https://github.com/tidwall/gjson)|{"q":3,"q":2}|2|3|
+|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"q":3,"q":2}|2|3|
+|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"q":3,"q":2}|2|3|
 |[python_simplejson](https://github.com/simplejson/simplejson)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q":3,"q":2}|2|3|
 |[python_simplejson](https://github.com/simplejson/simplejson)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":2," q":3}|2|3|
 |[python_simplejson](https://github.com/simplejson/simplejson)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q":3,"q":2}|2|3|
@@ -260,16 +298,17 @@ The project has currently found 210 cases where parsers retrieve different value
 |[rust_serde](https://github.com/serde-rs/json)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"q":3,"q":2}|2|3|
 |[rust_serde](https://github.com/serde-rs/json)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"q":3,"q":2}|2|3|
 
-*Table 1: Parsing mismatches. P1 and P2 refers to different parsers while P1\["q"] and P2\["q"] refers to what value the parsers access under key "q"*
-
-## Schedule
-TODO - for now I'm aiming to complete the thesis between December and March. The initial plan is to use one month for programming the fuzzer and the parsers, and the rest of the time for analyzing the gathered data and writing the paper.
+*Table 2: Parsing mismatches. P1 and P2 refer to different parsers, while P1\["q"] and P2\["q"] indicate the value each parser retrieves under key "q".*
 
 
 ## References
 \[1] [https://dl.acm.org/doi/abs/10.1145/3634737.3657003](https://dl.acm.org/doi/abs/10.1145/3634737.3657003)
+
 \[2] [https://bishopfox.com/blog/json-interoperability-vulnerabilities](https://bishopfox.com/blog/json-interoperability-vulnerabilities)
+
 \[3] [https://seriot.ch/projects/parsing\_json.html](https://seriot.ch/projects/parsing_json.html)
+
 \[4] [https://justi.cz/security/2017/11/14/couchdb-rce-npm.html](https://justi.cz/security/2017/11/14/couchdb-rce-npm.html)
 
+\[5] [https://datatracker.ietf.org/doc/html/rfc825](https://datatracker.ietf.org/doc/html/rfc825)
 
