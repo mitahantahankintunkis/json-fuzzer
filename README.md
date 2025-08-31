@@ -22,7 +22,7 @@ The goal is to test at least 40 parsers across 7 to 10 languages which will be s
 
 
 ## Methodology
-Research will be focused on testing how parsers handle different character encodings and duplicate keys in JSON objects. Research will be conducted using a custom fuzzing solution, which mutates different test cases selected from test suites of popular parsers and edge cases identified by the JSON specification\[5]. These mutated test cases will be be parsed with different parsers, whose results and execution times are stored for future analyzing.
+Research will be focused on testing how parsers handle different character encodings and duplicate keys in JSON objects. Research will be conducted using a custom fuzzing solution, which mutates different test cases selected from test suites of popular parsers and edge cases identified by the JSON specification\[5]. These mutated test cases will be parsed with different parsers, whose results and execution times are stored for future analyzing.
 
 
 ## Schedule
@@ -35,7 +35,7 @@ I am aiming to complete the thesis between December and March. I have completed 
 |Fuzzing and analyzing results|4-5 weeks|
 |Writing the paper|6-10 weeks|
 
-*Table 1: Rough time estimates for different tasks in the thesis. Some task may have overlap between each other.*
+*Table 1: Rough time estimates for different tasks in the thesis. Some tasks may have overlap between each other.*
 
 
 ## Work completed so far
@@ -44,17 +44,17 @@ This project includes a proof-of-concept fuzzing application capable of testing 
 The project currently consists of three main components:
 
 * **Fuzzer**: A Rust-based application that generates test cases and distributes them to parser clients via TCP sockets. Test cases are based on templates defined in [./payloads.toml](payloads.toml) and mutated according to configuration parameters.\
-The fuzzer can be further optimized and needs new features for more comples test cases.
+The fuzzer can be further optimized and needs new features for more complex test cases.
 
 * **Clients**: Each language has its own client that includes multiple parsers.\
 Currently, four clients are implemented for Rust, Go, Python, and C, containing a total of 19 different parsers.
 
-* **Analyzer**: A naive and limited implementation written in Rust that compares results produced by different parsers for each test case and saves interesting ones to in a `.csv` file for manual review.\
-Currently, only detects the most obvious cases where two parsers produce different outputs for the same input.
+* **Analyzer**: A naive and limited implementation written in Rust that compares results produced by different parsers for each test case and saves interesting ones in a `.csv` file for manual review.\
+Currently, the analyzer only detects the most obvious cases where two parsers produce different outputs for the same input.
 
 
 ### Preliminary results
-The project currently focuses on investigating how different parsers handle JSON objects containing duplicate keys. The latest JSON specification does not specify the expected behavior for duplicate keys, leaving it to be implementation specific\[5]. This ambiguity has led to vulnerabilities before, for example in Apache CouchDB, where inconsistencies between Erlang and Javascript JSON parsers enabled an attacker to potentially gain administrative access to any bublic-facing CouchDB instance\[4].
+The project currently focuses on investigating how different parsers handle JSON objects containing duplicate keys. The latest JSON specification does not specify the expected behavior for duplicate keys, leaving it to be implementation specific\[5]. This ambiguity has led to vulnerabilities before, for example in Apache CouchDB, where inconsistencies between Erlang and Javascript JSON parsers enabled an attacker to potentially gain administrative access to any public-facing CouchDB instance\[4].
 
 The project has found 226 parser combinations out of 361 possible (63%) where parsers return different values in JSON objects when querying for the same key. These cases are listed in the figure and table below.
 
