@@ -12,17 +12,19 @@
 
 JavaScript Object Notation(JSON) has become the de facto standard for data interchange on the internet, and as such, multiple parsers have been developed for it across programming languages. With the rise of microservice-based cloud architectures, where small independent services often utilize JSON for communication, these different parser implementations may be used to parse the same inputs. If a malicious actor is able to inject JSON data into such communication, inconsistencies in parser behavior may enable privilege escalation, denial-of-service attacks, or other vulnerabilities\[4].
 
-Despite the widespread use of JSON, academic research on JSON parser interoperability is surprisingly limited\[1]. Most prior work has been carried out by independent security researchers, though their findings are already several years old and may be outdated\[2]\[3]. The thesis aims to further this research by documenting interoperability issues across different parser implementations in multiple programming languages.
+Even with its minimalistic design, JSON parsing can introduce security vulnerabilities due to ambiguities in the specification and incorrect parser implementations\[5]. Due to its apparent simplicity and minimalistic featureset, JSON can easily be missed as a potential attack vector.
+
+Despite the widespread use of JSON, academic research on JSON parser interoperability is surprisingly limited\[1]. Most prior work has been carried out by independent security researchers, though their findings are already several years old and may be outdated\[2]\[3]. This thesis aims to further research in the area by documenting interoperability concerns across different parser implementations in multiple programming languages.
 
 
 ## Goals and contributions
 The main goal of the thesis is to document discrepancies between parsing results that may lead to vulnerabilities. These results will be compiled into a compatibility matrix showing which parsers should not be used together. An example of this matrix can be found in [Preliminary results](#preliminary-results). A secondary goal is to search for vulnerabilities in individual parsers, although no results are guaranteed for this.
 
-The goal is to test at least 40 parsers across 7 to 10 languages which will be selected from [json.org](https://json.org) and GitHub based on their popularity. The research may also be expanded to include JSON parsers in SQL database engines such as SQLite and PostgreSQL.
+The aim is to test at least 40 parsers across 7 to 10 languages which will be selected from [json.org](https://json.org) and GitHub based on their popularity. The research may also be expanded to include JSON parsers in SQL database engines such as SQLite and PostgreSQL.
 
 
 ## Methodology
-Research will be focused on testing how parsers handle different character encodings and duplicate keys in JSON objects. Research will be conducted using a custom fuzzing solution, which mutates different test cases selected from test suites of popular parsers and edge cases identified by the JSON specification\[5]. These mutated test cases will be parsed with different parsers, whose results and execution times are stored for future analyzing.
+The thesis will focus on testing how parsers handle different character encodings and duplicate keys in JSON objects. Research will be conducted using a custom fuzzing solution, which mutates different test cases selected from test suites of popular parsers and edge cases identified by the JSON specification\[5]. These mutated test cases will be parsed with different parsers, whose results and execution times are stored for future analyzing.
 
 
 ## Schedule
@@ -54,7 +56,7 @@ Currently, the analyzer only detects the most obvious cases where two parsers pr
 
 
 ### Preliminary results
-The project currently focuses on investigating how different parsers handle JSON objects containing duplicate keys. The latest JSON specification does not specify the expected behavior for duplicate keys, leaving it to be implementation specific\[5]. This ambiguity has led to vulnerabilities before, for example in Apache CouchDB, where inconsistencies between Erlang and Javascript JSON parsers enabled an attacker to potentially gain administrative access to any public-facing CouchDB instance\[4].
+The project currently focuses only on investigating how different parsers handle JSON objects containing duplicate keys. The latest JSON specification does not specify the expected behavior for duplicate keys, leaving it to be implementation specific\[5]. This ambiguity has led to vulnerabilities before, for example in Apache CouchDB, where inconsistencies between Erlang and Javascript JSON parsers enabled an attacker to potentially gain administrative access to any public-facing CouchDB instance\[4].
 
 The project has found 226 parser combinations out of 361 possible (63%) where parsers return different values in JSON objects when querying for the same key. These cases are listed in the figure and table below.
 
