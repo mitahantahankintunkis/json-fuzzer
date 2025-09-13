@@ -58,7 +58,7 @@ Currently, the analyzer only detects the most obvious cases where two parsers pr
 ### Preliminary results
 The project currently focuses only on investigating how different parsers handle JSON objects containing duplicate keys. The latest JSON specification does not specify the expected behavior for duplicate keys, leaving it to be implementation specific\[5]. This ambiguity has led to vulnerabilities before, for example in Apache CouchDB, where inconsistencies between Erlang and Javascript JSON parsers enabled an attacker to potentially gain administrative access to any public-facing CouchDB instance\[4].
 
-To see examples of how these discrepancies can be bypassed, see [./poc/API_gateway_schema_bypass/](./poc/API_gateway_schema_bypass/) and [./poc/proxy_rate_limiting_bypass/](./poc/proxy_rate_limiting_bypass/)
+To see examples of how these discrepancies can be used to bypass security measures, see [./poc/API_gateway_schema_bypass/](./poc/API_gateway_schema_bypass/) and [./poc/proxy_rate_limiting_bypass/](./poc/proxy_rate_limiting_bypass/)
 
 The project has found 226 parser combinations out of 361 possible (63%) where parsers return different values in JSON objects when querying for the same key. These cases are listed in the figure and table below.
 
