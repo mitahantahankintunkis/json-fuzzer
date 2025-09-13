@@ -25,10 +25,14 @@ This sets up the following architecture:
 The two bash scripts showcase the vulnerability. Their output can be seen in the figure below.
 
 ![HAProxy rate limiting bypass](paper/figures/haproxy-ratelimit-bypass.png "HAProxy rate limiting bypass")
+
 *Figure 2: Output from two password brute forcing bash scripts; expected_behavior.sh and bypass.sh. The first shows rate limiting being applied, while the second shows how it can be bypassed.*
 
-References:
+## References:
 \[1] [https://hub.docker.com/_/haproxy](https://hub.docker.com/_/haproxy)
+
 \[2] [https://github.com/haproxy/haproxy](https://github.com/haproxy/haproxy)
+
 \[3] [https://github.com/cesanta/mjson](https://github.com/cesanta/mjson)
+
 \[4] [https://datatracker.ietf.org/doc/html/rfc825](https://datatracker.ietf.org/doc/html/rfc825)

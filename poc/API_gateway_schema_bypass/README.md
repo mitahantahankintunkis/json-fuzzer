@@ -24,9 +24,12 @@ This sets up the following architecture:
 The two bash scripts showcase the vulnerability. Their output can be seen in the figure below.
 
 ![Schema bypass](../../paper/figures/schema-bypass.png "Schema bypass")
+
 *Figure 2: Output from two login scripts; expected_behavior.sh and bypass.sh. The first shows how SQL injection is blocked by Tyk, while the second shows how it can be bypassed.*
 
-References:
+## References:
+
 \[1] [https://tyk.io/](https://tyk.io/)
+
 \[2] [https://swagger.io/specification/](https://swagger.io/specification/)
 
