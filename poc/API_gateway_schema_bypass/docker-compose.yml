@@ -1,0 +1,14 @@
+include:
+  - ./tyk-gateway-docker/docker-compose.yml
+
+services:
+  backend:
+    build:
+      context: ./go
+    container_name: go-backend
+    expose:
+      - "8080"
+    networks:
+      - tyk
+    restart: unless-stopped
+
