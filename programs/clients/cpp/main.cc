@@ -1,4 +1,6 @@
-#include <math.h>
+// #include <math.h>
+// #include <cstdint>
+#include <cmath>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,23 +13,24 @@
 #include <time.h>
 
 #include <jansson.h>
-#include "cJSON.h"
+#include "lib/modsecurity_json.h"
+#include "lib/mjson.h"
+#include "lib/cJSON.h"
 #include "json_parser.h"
 
 #define SERVER_ADDR "127.0.0.1"
 #define SERVER_PORT 5000
-// #define NAME "c_cjson"
 #define KEY_NOT_FOUND "KEY_NOT_FOUND"
 #define PARSE_ERROR "PARSE_ERROR"
 
-char* return_buffer[256];
+char return_buffer[256];
 
 
 int recv_all(int sock, void *buf, size_t len) {
     size_t received = 0;
     while (received < len) {
         ssize_t n = recv(sock, (char*)buf + received, len - received, 0);
-        if (n < 0) return -1;
+        if (n <= 0) return -1;
         received += n;
     }
     return 0;
@@ -37,14 +40,15 @@ int send_all(int sock, const void *buf, size_t len) {
     size_t sent = 0;
     while (sent < len) {
         ssize_t n = send(sock, (char*)buf + sent, len - sent, 0);
-        if (n < 0) return -1;
+        if (n <= 0) return -1;
         sent += n;
     }
     return 0;
 }
 
-char* parse_cjson(uint8_t* data, char* key) {
-    cJSON *parsed = cJSON_Parse((char*)data);
+
+char* parse_cjson(char* data, char* key) {
+    cJSON *parsed = cJSON_Parse(data);
     if (parsed) {
         cJSON *q = cJSON_GetObjectItemCaseSensitive(parsed, "q");
         char* ret;
@@ -59,15 +63,16 @@ char* parse_cjson(uint8_t* data, char* key) {
         } else if (cJSON_IsString(q) && q->valuestring) {
             ret = strdup(q->valuestring);
         } else {
-            ret = KEY_NOT_FOUND;
+            ret = (char*)KEY_NOT_FOUND;
         }
 
         cJSON_Delete(parsed);
         return ret;
     } else {
-        return PARSE_ERROR;
+        return (char*)PARSE_ERROR;
     }
 }
+
 
 char* parse_jansson(char* data, char* key) {
     json_t *root;
@@ -76,7 +81,7 @@ char* parse_jansson(char* data, char* key) {
     root = json_loads(data, 0, &error);
 
     if (root) {
-        char* ret = PARSE_ERROR;
+        char* ret = (char*)PARSE_ERROR;
 
         if (json_is_object(root)) {
             json_t* query = json_object_get(root, key);
@@ -92,16 +97,55 @@ char* parse_jansson(char* data, char* key) {
                     ret = (char*)return_buffer;
                 }
             } else {
-                ret = KEY_NOT_FOUND;
+                ret = (char*)KEY_NOT_FOUND;
             }
         }
 
         json_decref(root);
         return ret;
     } else {
-        return PARSE_ERROR;
+        return (char*)PARSE_ERROR;
     }
 }
+
+
+char* parse_modsecurity(char* data, size_t json_size, char* key) {
+	modsecurity::RequestBodyProcessor::JSON parser = modsecurity::RequestBodyProcessor::JSON();
+	std::string error;
+	parser.processChunk(data, json_size, &error);
+	parser.complete(&error);
+
+	if (!error.empty()) {
+		return (char*)PARSE_ERROR;
+	}
+
+	if (!parser.parsed.contains("json.q")) {
+		return (char*)KEY_NOT_FOUND;
+	}
+
+	return strdup(parser.parsed["json.q"].c_str());
+}
+
+
+char* parse_mjson(char* data, size_t json_size, char* key) {
+	double ret;
+
+	if (mjson_get_number(data, json_size, "$.q", &ret)) {
+		if (std::floor(ret) == ret) {
+			snprintf((char*)return_buffer, sizeof(return_buffer), "%d", (int)ret);
+		} else {
+			snprintf((char*)return_buffer, sizeof(return_buffer), "%f", ret);
+		}
+		return return_buffer;
+	}
+
+	// if (mjson_get_string(data, json_size, "$.q", return_buffer, 256)) {
+	// 	return return_buffer;
+	// }
+
+	return (char*)PARSE_ERROR;
+}
+
 
 int main(int argc, char* argv[]) {
     int parser_number = 0;
@@ -114,16 +158,21 @@ int main(int argc, char* argv[]) {
 
     switch (parser_number) {
         case 0:
-            parser_name = "c_cjson";
+            parser_name = (char*)"cpp_modsecurity";
             break;
         case 1:
-            parser_name = "c_json_parser";
+            parser_name = (char*)"c_mjson";
             break;
         case 2:
-            parser_name = "c_jansson";
+            parser_name = (char*)"c_cjson";
+            break;
+        case 3:
+            parser_name = (char*)"c_json_parser";
+            break;
+        case 4:
+            parser_name = (char*)"c_jansson";
             break;
         default:
-            // perror("Invalid parser number in arguments");
             return 1;
     }
 
@@ -165,15 +214,16 @@ int main(int argc, char* argv[]) {
 
     uint8_t* read_buffer = NULL;
     uint8_t* write_buffer = NULL;
-    int read_size = -1;
-    int write_size = -1;
+    size_t read_size = -1;
+    size_t write_size = -1;
     char* message = NULL;
+    // std::vector read_buffer = new std::vector();
+    // std::vector write_buffer = new std::vector();
 
     while (1) {
         uint8_t header[8];
 
         if (recv_all(sock, header, 8) < 0) {
-            // printf("Connection closed (header)\n");
             break;
         }
 
@@ -184,11 +234,11 @@ int main(int argc, char* argv[]) {
         size_t total_payload = (size_t)payload_size * batch_size;
 
         if (read_size != total_payload) {
-            read_buffer = realloc(read_buffer, total_payload);
+            read_buffer = (uint8_t*)realloc(read_buffer, total_payload);
         }
 
         if (write_size != buffer_size) {
-            write_buffer = realloc(write_buffer, buffer_size);
+            write_buffer = (uint8_t*)realloc(write_buffer, buffer_size);
         }
 
         if (recv_all(sock, read_buffer, total_payload) < 0) {
@@ -205,36 +255,41 @@ int main(int argc, char* argv[]) {
 
             switch (parser_number) {
                 case 0:
-                    message = parse_cjson((uint8_t*)json_str, "q");
+                    message = parse_modsecurity(json_str, payload_size, (char*)"q");
                     break;
                 case 1:
-                    message = parse_json_parser(json_str, "q");
+                    message = parse_mjson(json_str, payload_size, (char*)"q");
                     break;
                 case 2:
-                    message = parse_jansson(json_str, "q");
+                    message = parse_cjson(json_str, (char*)"q");
+                    break;
+                case 3:
+                    message = parse_json_parser(json_str, (char*)"q", 1);
+                    break;
+                case 4:
+                    message = parse_jansson(json_str, (char*)"q");
                     break;
             }
 
             uint16_t msg_len = (uint16_t)strlen(message);
-            // uint16_t msg_len = htons(strlen(message));
             memcpy(write_buffer + byte_offset, &msg_len, 2);
             byte_offset += 2;
 
             memcpy(write_buffer + byte_offset, message, msg_len);
             byte_offset += msg_len;
+
+            free(json_str);
         }
 
-        // uint32_t payload_len = htonl((byte_offset - 4));
         uint32_t payload_len = byte_offset - 4;
         memcpy(write_buffer, &payload_len, 4);
 
         if (send_all(sock, write_buffer, byte_offset) < 0) {
-            perror("C Client: Write error\n");
+            perror("C/C++ Client: Write error\n");
             break;
         }
     }
 
-    free(message);
     free(read_buffer);
     free(write_buffer);
     close(sock);

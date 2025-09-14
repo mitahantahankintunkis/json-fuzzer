@@ -1,5 +1,5 @@
 [package]
-name = "rust-clients"
+name = "rust-client"
 version = "0.1.0"
 edition = "2021"
 

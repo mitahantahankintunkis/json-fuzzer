@@ -12,6 +12,7 @@ toml = "0.9.5"
 
 [profile.release]
 debug = 1
+#debug = "line-tables-only"
 
 [profile.test]
 inherits = "release"

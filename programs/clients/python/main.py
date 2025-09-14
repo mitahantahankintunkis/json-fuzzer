@@ -7,6 +7,7 @@ import sys
 import orjson
 import ujson
 import msgspec
+import rapidjson
 
 
 KEY_NOT_FOUND = 'KEY_NOT_FOUND'
@@ -72,6 +73,15 @@ def parse_msgspec(data):
         return PARSE_ERROR
 
 
+def parse_rapidjson(data, key):
+    try:
+        query = rapidjson.loads(data)
+        return str(query[key])
+
+    except Exception:
+        return PARSE_ERROR
+
+
 def main():
     parser_number = 0
 
@@ -89,6 +99,8 @@ def main():
             name = b'python_ujson'
         case 4:
             name = b'python_msgspec'
+        case 5:
+            name = b'python_rapidjson'
         case _:
             sys.exit(1)
 
@@ -151,6 +163,8 @@ def main():
                     message = parse_ujson(data, 'q')
                 case 4:
                     message = parse_msgspec(data)
+                case 5:
+                    message = parse_rapidjson(data, 'q')
 
             # Write message length (u16 LE) + message bytes
             size_bytes = struct.pack('<H', len(message))

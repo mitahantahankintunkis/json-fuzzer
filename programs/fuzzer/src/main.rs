@@ -10,6 +10,8 @@ use std::io::prelude::*;
 use std::net::{TcpListener, TcpStream};
 use std::{fs, thread};
 
+use crate::util::byte_to_string;
+
 #[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -23,6 +25,11 @@ struct Args {
     // fuzzing_types: Vec<FuzzingType>,
     #[arg(short, long, default_value_t=1 << 20)]
     buffer_size: usize,
+
+    #[arg(long)]
+    find_payload: Option<String>,
+    #[arg(long)]
+    find_parser: Option<String>,
 }
 
 fn fuzz(stream: &mut TcpStream, args: &Args, payload_config: &PayloadConfig) -> Encoder {
@@ -153,8 +160,8 @@ fn handle_client(stream: &mut TcpStream, args: &Args) {
         .to_string();
 
     for payload_config in &config.payloads {
-        if !fs::exists("../data/").expect("Could not check if data directory exists") {
-            let _ = fs::create_dir("../data");
+        if !fs::exists("data/").expect("Could not check if data directory exists") {
+            let _ = fs::create_dir("data");
         }
 
         // let digest = md5::compute(base_payload);
@@ -162,7 +169,7 @@ fn handle_client(stream: &mut TcpStream, args: &Args) {
         //     "../data/{}-{}-{}.bin",
         //     client_name, payload_config.name, payload_config.payload
         // );
-        let file_name: String = format!("../data/{}-{}.bin", client_name, payload_config.name);
+        let file_name: String = format!("data/{}-{}.bin", client_name, payload_config.name);
 
         if fs::exists(&file_name).expect("Could not check if file exists") {
             println!("'{}' already exists. Skipping fuzzing.", file_name);
@@ -314,6 +321,66 @@ fn main() -> std::io::Result<()> {
     if args.analyze {
         analyze::analyze(&args);
         return Ok(());
+    }
+
+    if let Some(parser_name) = &args.find_parser {
+        let config = load_payloads();
+        let target_payload = args
+            .find_payload
+            .clone()
+            .expect("find_payload needs to be specified");
+
+        for payload_config in &config.payloads {
+            let files = std::fs::read_dir("data/").expect("Could not open 'data/'");
+
+            for file in files {
+                if let Ok(f) = file {
+                    let file_name: String = f.file_name().to_str().unwrap().to_string();
+                    let split: Vec<&str> = file_name.splitn(2, '-').collect();
+
+                    if split.len() != 2 {
+                        eprintln!("Malformed filename '{}'", file_name);
+                        continue;
+                    }
+
+                    let file_parser_name = &split[0];
+                    let file_config_name = &split[1][0..split[1].len() - 4];
+
+                    if file_config_name != payload_config.name {
+                        continue;
+                    }
+
+                    if file_parser_name != parser_name {
+                        continue;
+                    }
+
+                    let bytes = std::fs::read(f.path()).expect("Could not read file");
+                    let mut decoder = Decoder::new(Box::new(bytes));
+                    let mut payload: Payload = payload_config.clone().into();
+
+                    while let Some(output) = decoder.next_message() {
+                        let cur_payload = payload
+                            .into_iter()
+                            .map(|c| byte_to_string(c))
+                            .collect::<Vec<String>>()
+                            .join("");
+
+                        if cur_payload == *target_payload {
+                            println!("{}: {} -> {}", payload_config.name, cur_payload, output);
+                        }
+
+                        if let Err(_) = payload.advance() {
+                            break;
+                        }
+                    }
+
+                    // let result = FuzzingResult {
+                    //     parser_name: split[0].to_string(),
+                    //     decoder: Decoder::new(Box::new(bytes)),
+                    // };
+                }
+            }
+        }
     }
 
     let listener = TcpListener::bind("127.0.0.1:5000")?;

@@ -87,6 +87,12 @@ impl Encoder {
     }
 }
 
+#[derive(Default)]
+pub struct DecoderState {
+    pub message_index: usize,
+    pub cur_repeat: u32,
+}
+
 impl Decoder {
     pub fn new(bytes: Box<Vec<u8>>) -> Decoder {
         Decoder {
@@ -97,35 +103,84 @@ impl Decoder {
         }
     }
 
+    pub fn next_message_with_state(&self, state: &mut DecoderState) -> Option<&str> {
+        if state.message_index >= self.bytes.len() {
+            return None;
+        }
+
+        let repeat_bytes = &self.bytes[state.message_index..(state.message_index + 4)];
+
+        // ~30% faster with unsafe functions
+        unsafe {
+            let repeat = u32::from_le_bytes(repeat_bytes.try_into().unwrap_unchecked());
+
+            let length_bytes = &self.bytes[(state.message_index + 4)..(state.message_index + 8)];
+            let length: usize =
+                u32::from_le_bytes(length_bytes.try_into().unwrap_unchecked()) as usize;
+
+            let data = &self.bytes[(state.message_index + 8)..(state.message_index + 8 + length)];
+
+            let str = std::str::from_utf8_unchecked(&data);
+
+            state.cur_repeat += 1;
+
+            if state.cur_repeat >= repeat {
+                state.cur_repeat = 0;
+                state.message_index += length + 8;
+            }
+            return Some(str);
+        }
+    }
+
+    #[allow(dead_code)]
     pub fn next_message(&mut self) -> Option<&str> {
         if self.message_index >= self.bytes.len() {
             return None;
         }
 
         let repeat_bytes = &self.bytes[self.message_index..(self.message_index + 4)];
-        let repeat = u32::from_le_bytes(repeat_bytes.try_into().unwrap());
 
-        let length_bytes = &self.bytes[(self.message_index + 4)..(self.message_index + 8)];
-        let length: usize = u32::from_le_bytes(length_bytes.try_into().unwrap())
-            .try_into()
-            .unwrap();
+        // ~30% faster with unsafe functions
+        unsafe {
+            let repeat = u32::from_le_bytes(repeat_bytes.try_into().unwrap_unchecked());
 
-        let data = &self.bytes[(self.message_index + 8)..(self.message_index + 8 + length)];
+            let length_bytes = &self.bytes[(self.message_index + 4)..(self.message_index + 8)];
+            let length: usize =
+                u32::from_le_bytes(length_bytes.try_into().unwrap_unchecked()) as usize;
 
-        let str = match std::str::from_utf8(&data) {
-            Ok(s) => s,
-            Err(_) => "utf-8 parse error",
-        };
+            let data = &self.bytes[(self.message_index + 8)..(self.message_index + 8 + length)];
 
-        self.cur_repeat += 1;
-        self.messages_parsed += 1;
+            let str = std::str::from_utf8_unchecked(&data);
 
-        if self.cur_repeat >= repeat {
-            self.cur_repeat = 0;
-            self.message_index += length + 8;
+            self.cur_repeat += 1;
+            self.messages_parsed += 1;
+
+            if self.cur_repeat >= repeat {
+                self.cur_repeat = 0;
+                self.message_index += length + 8;
+            }
+            return Some(str);
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn cur_message(&self) -> Option<&str> {
+        if self.message_index >= self.bytes.len() {
+            return None;
         }
 
-        return Some(str);
+        // ~30% faster with unsafe functions
+        unsafe {
+            let length_bytes = &self.bytes[(self.message_index + 4)..(self.message_index + 8)];
+            let length: usize =
+                u32::from_le_bytes(length_bytes.try_into().unwrap_unchecked()) as usize;
+
+            let data = &self.bytes[(self.message_index + 8)..(self.message_index + 8 + length)];
+
+            let str = std::str::from_utf8_unchecked(&data);
+
+            return Some(str);
+        }
     }
 }
 

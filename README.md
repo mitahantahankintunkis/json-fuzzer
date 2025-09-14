@@ -49,10 +49,24 @@ The project currently consists of three main components:
 The fuzzer can be further optimized and needs new features for more complex test cases.
 
 * **Clients**: Each language has its own client that includes multiple parsers.\
-Currently, four clients are implemented for Rust, Go, Python, and C, containing a total of 19 different parsers.
+Currently, five clients are implemented for Rust, Go, Python, Lua, and C/C++, containing a total of 22 different parsers.
 
 * **Analyzer**: A naive and limited implementation written in Rust that compares results produced by different parsers for each test case and saves interesting ones in a `.csv` file for manual review.\
 Currently, the analyzer only detects the most obvious cases where two parsers produce different outputs for the same input.
+
+To run the project in its current state, install docker and run the following command:
+
+```
+./run-docker.sh
+```
+
+Once inside the image, run the following commands:
+
+```
+./run.sh
+# Stop run.sh after it has finished with <C-c>
+./analyze.sh
+```
 
 
 ### Preliminary results
@@ -60,7 +74,7 @@ The project currently focuses only on investigating how different parsers handle
 
 To see examples of how these discrepancies can be used to bypass security measures, see [./poc/API_gateway_schema_bypass/](./poc/API_gateway_schema_bypass/) and [./poc/proxy_rate_limiting_bypass/](./poc/proxy_rate_limiting_bypass/)
 
-The project has found 226 parser combinations out of 361 possible (63%) where parsers return different values in JSON objects when querying for the same key. These cases are listed in the figure and table below.
+The project has found 233 parser combinations out of 484 possible (48%) where parsers return different values in JSON objects when querying for the same key. These cases are listed in the figure and table below.
 
 ![JSON parsing mismatches](paper/figures/parsing_mismatches.png "JSON parsing mismatches")
 
@@ -70,6 +84,8 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |-------|-------|----|:-----:|:-----:|
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[c_jansson](https://github.com/akheron/jansson)|{"q":2,"q":3}|2|3|
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":2,"q":3}|2|3|
+|[c_cjson](https://github.com/DaveGamble/cJSON)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"\u0071":2,"q":3}|2|3|
+|[c_cjson](https://github.com/DaveGamble/cJSON)|[cpp_modsecurity](https://github.com/owasp-modsecurity/ModSecurity)|{"q":2,"q":3}|2|3|
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q\u0000":2,"q":3}|2|3|
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[go_francoispqt_gojay](https://github.com/francoispqt/gojay)|{"q":2,"q":3}|2|3|
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":2,"q":3}|2|3|
@@ -78,6 +94,7 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[go_tidwall_gjson](https://github.com/tidwall/gjson)|{"q\u0000":2,"q":3}|2|3|
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"q\u0000":2,"q":3}|2|3|
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"\u0071":2,"q":3}|2|3|
+|[c_cjson](https://github.com/DaveGamble/cJSON)|[lua_cjson](https://github.com/openresty/lua-cjson)|{"q":2,"q":3}|2|3|
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[python_json](https://docs.python.org/3/library/json.html)|{"q":2,"q":3}|2|3|
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[python_msgspec](https://github.com/jcrist/msgspec)|{"q":2,"q":3}|2|3|
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[python_orjson](https://github.com/ijl/orjson)|{"q":2,"q":3}|2|3|
@@ -87,7 +104,7 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[rust_json](https://github.com/maciejhirsz/json-rust)|{"q":2,"q":3}|2|3|
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[rust_serde](https://github.com/serde-rs/json)|{"q":2,"q":3}|2|3|
 |[c_jansson](https://github.com/akheron/jansson)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q":2,"q":3}|2|3|
-|[c_jansson](https://github.com/akheron/jansson)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":2," ":3}|2|3|
+|[c_jansson](https://github.com/akheron/jansson)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"q":3,"q":2}|2|3|
 |[c_jansson](https://github.com/akheron/jansson)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q":3,"q":2}|2|3|
 |[c_jansson](https://github.com/akheron/jansson)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":2,"Q":3}|2|3|
 |[c_jansson](https://github.com/akheron/jansson)|[go_std](https://pkg.go.dev/encoding/json)|{"q":2,"Q":3}|2|3|
@@ -95,32 +112,53 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |[c_jansson](https://github.com/akheron/jansson)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"q":3,"q":2}|2|3|
 |[c_jansson](https://github.com/akheron/jansson)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"q":3,"q":2}|2|3|
 |[c_json_parser](https://github.com/json-parser/json-parser)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q":2,"q":3}|2|3|
-|[c_json_parser](https://github.com/json-parser/json-parser)|[c_jansson](https://github.com/akheron/jansson)|{"q":2," ":3}|2|3|
+|[c_json_parser](https://github.com/json-parser/json-parser)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"q":3,"q":2}|2|3|
 |[c_json_parser](https://github.com/json-parser/json-parser)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q":3,"q":2}|2|3|
-|[c_json_parser](https://github.com/json-parser/json-parser)|[go_francoispqt_gojay](https://github.com/francoispqt/gojay)|{"q":2," ":3}|3|2|
-|[c_json_parser](https://github.com/json-parser/json-parser)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":2," ":3}|3|2|
-|[c_json_parser](https://github.com/json-parser/json-parser)|[go_std](https://pkg.go.dev/encoding/json)|{"q":2," ":3}|3|2|
-|[c_json_parser](https://github.com/json-parser/json-parser)|[go_sugawarayuuta_sonnet](https://github.com/sugawarayuuta/sonnet)|{"q":2," ":3}|3|2|
+|[c_json_parser](https://github.com/json-parser/json-parser)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":2,"Q":3}|2|3|
+|[c_json_parser](https://github.com/json-parser/json-parser)|[go_std](https://pkg.go.dev/encoding/json)|{"q":2,"Q":3}|2|3|
 |[c_json_parser](https://github.com/json-parser/json-parser)|[go_tidwall_gjson](https://github.com/tidwall/gjson)|{"q":3,"q":2}|2|3|
 |[c_json_parser](https://github.com/json-parser/json-parser)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"q":3,"q":2}|2|3|
 |[c_json_parser](https://github.com/json-parser/json-parser)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"q":3,"q":2}|2|3|
-|[c_json_parser](https://github.com/json-parser/json-parser)|[python_json](https://docs.python.org/3/library/json.html)|{"q":2," ":3}|3|2|
-|[c_json_parser](https://github.com/json-parser/json-parser)|[python_msgspec](https://github.com/jcrist/msgspec)|{"q":2," ":3}|3|2|
-|[c_json_parser](https://github.com/json-parser/json-parser)|[python_orjson](https://github.com/ijl/orjson)|{"q":2," ":3}|3|2|
-|[c_json_parser](https://github.com/json-parser/json-parser)|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|{"q":2," ":3}|3|2|
-|[c_json_parser](https://github.com/json-parser/json-parser)|[python_simplejson](https://github.com/simplejson/simplejson)|{"q":2," ":3}|3|2|
-|[c_json_parser](https://github.com/json-parser/json-parser)|[python_ujson](https://github.com/ultrajson/ultrajson)|{"q":2," ":3}|3|2|
-|[c_json_parser](https://github.com/json-parser/json-parser)|[rust_json](https://github.com/maciejhirsz/json-rust)|{"q":2," ":3}|3|2|
-|[c_json_parser](https://github.com/json-parser/json-parser)|[rust_serde](https://github.com/serde-rs/json)|{"q":2," ":3}|3|2|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"\u0071":2,"q":3}|2|3|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[c_jansson](https://github.com/akheron/jansson)|{"q":3,"q":2}|2|3|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":3,"q":2}|2|3|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[cpp_modsecurity](https://github.com/owasp-modsecurity/ModSecurity)|{"q":2,"q":3}|2|3|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"\u0071":2,"q":3}|3|2|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[go_francoispqt_gojay](https://github.com/francoispqt/gojay)|{"q":2,"q":3}|2|3|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":2,"q":3}|2|3|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[go_std](https://pkg.go.dev/encoding/json)|{"q":2,"q":3}|2|3|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[go_sugawarayuuta_sonnet](https://github.com/sugawarayuuta/sonnet)|{"q":2,"q":3}|2|3|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[go_tidwall_gjson](https://github.com/tidwall/gjson)|{"q\q":2,"q":3}|3|2|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"\u0071":2,"q":3}|3|2|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[lua_cjson](https://github.com/openresty/lua-cjson)|{"q":2,"q":3}|2|3|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[python_json](https://docs.python.org/3/library/json.html)|{"q":2,"q":3}|2|3|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[python_msgspec](https://github.com/jcrist/msgspec)|{"q":2,"q":3}|2|3|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[python_orjson](https://github.com/ijl/orjson)|{"q":2,"q":3}|2|3|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|{"q":2,"q":3}|2|3|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[python_simplejson](https://github.com/simplejson/simplejson)|{"q":2,"q":3}|2|3|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[python_ujson](https://github.com/ultrajson/ultrajson)|{"q":2,"q":3}|2|3|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[rust_json](https://github.com/maciejhirsz/json-rust)|{"q":2,"q":3}|2|3|
+|[c_mjson](https://github.com/cesanta/mjson/tree/master)|[rust_serde](https://github.com/serde-rs/json)|{"q":2,"q":3}|2|3|
+|[cpp_modsecurity](https://github.com/owasp-modsecurity/ModSecurity)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q":2,"q":3}|2|3|
+|[cpp_modsecurity](https://github.com/owasp-modsecurity/ModSecurity)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"q":2,"q":3}|2|3|
+|[cpp_modsecurity](https://github.com/owasp-modsecurity/ModSecurity)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q":3,"q":2}|2|3|
+|[cpp_modsecurity](https://github.com/owasp-modsecurity/ModSecurity)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":2,"Q":3}|2|3|
+|[cpp_modsecurity](https://github.com/owasp-modsecurity/ModSecurity)|[go_std](https://pkg.go.dev/encoding/json)|{"q":2,"Q":3}|2|3|
+|[cpp_modsecurity](https://github.com/owasp-modsecurity/ModSecurity)|[go_tidwall_gjson](https://github.com/tidwall/gjson)|{"q":3,"q":2}|2|3|
+|[cpp_modsecurity](https://github.com/owasp-modsecurity/ModSecurity)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"q":3,"q":2}|2|3|
+|[cpp_modsecurity](https://github.com/owasp-modsecurity/ModSecurity)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"q":3,"q":2}|2|3|
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q\u0000":2,"q":3}|2|3|
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[c_jansson](https://github.com/akheron/jansson)|{"q":3,"q":2}|2|3|
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":3,"q":2}|2|3|
+|[go_buger_jsonparser](https://github.com/buger/jsonparser)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"\u0071":2,"q":3}|3|2|
+|[go_buger_jsonparser](https://github.com/buger/jsonparser)|[cpp_modsecurity](https://github.com/owasp-modsecurity/ModSecurity)|{"q":3,"q":2}|2|3|
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[go_francoispqt_gojay](https://github.com/francoispqt/gojay)|{"q":2,"q":3}|2|3|
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":2,"q":3}|2|3|
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[go_std](https://pkg.go.dev/encoding/json)|{"q":2,"q":3}|2|3|
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[go_sugawarayuuta_sonnet](https://github.com/sugawarayuuta/sonnet)|{"q":2,"q":3}|2|3|
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[go_tidwall_gjson](https://github.com/tidwall/gjson)|{"q" 2,"q":3}|3|2|
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"\u0071":2,"q":3}|2|3|
+|[go_buger_jsonparser](https://github.com/buger/jsonparser)|[lua_cjson](https://github.com/openresty/lua-cjson)|{"q":2,"q":3}|2|3|
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[python_json](https://docs.python.org/3/library/json.html)|{"q":2,"q":3}|2|3|
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[python_msgspec](https://github.com/jcrist/msgspec)|{"q":2,"q":3}|2|3|
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[python_orjson](https://github.com/ijl/orjson)|{"q":2,"q":3}|2|3|
@@ -130,7 +168,7 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[rust_json](https://github.com/maciejhirsz/json-rust)|{"q":2,"q":3}|2|3|
 |[go_buger_jsonparser](https://github.com/buger/jsonparser)|[rust_serde](https://github.com/serde-rs/json)|{"q":2,"q":3}|2|3|
 |[go_francoispqt_gojay](https://github.com/francoispqt/gojay)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q":2,"q":3}|2|3|
-|[go_francoispqt_gojay](https://github.com/francoispqt/gojay)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":2," ":3}|3|2|
+|[go_francoispqt_gojay](https://github.com/francoispqt/gojay)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"q":2,"q":3}|2|3|
 |[go_francoispqt_gojay](https://github.com/francoispqt/gojay)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q":2,"q":3}|2|3|
 |[go_francoispqt_gojay](https://github.com/francoispqt/gojay)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":2,"Q":3}|2|3|
 |[go_francoispqt_gojay](https://github.com/francoispqt/gojay)|[go_std](https://pkg.go.dev/encoding/json)|{"q":2,"Q":3}|2|3|
@@ -139,13 +177,16 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |[go_francoispqt_gojay](https://github.com/francoispqt/gojay)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"q":3,"q":2}|2|3|
 |[go_json_iterator](https://github.com/json-iterator/go)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q":2,"q":3}|2|3|
 |[go_json_iterator](https://github.com/json-iterator/go)|[c_jansson](https://github.com/akheron/jansson)|{"q":2,"Q":3}|2|3|
-|[go_json_iterator](https://github.com/json-iterator/go)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":2," ":3}|3|2|
+|[go_json_iterator](https://github.com/json-iterator/go)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":2,"Q":3}|2|3|
+|[go_json_iterator](https://github.com/json-iterator/go)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"q":2,"q":3}|2|3|
+|[go_json_iterator](https://github.com/json-iterator/go)|[cpp_modsecurity](https://github.com/owasp-modsecurity/ModSecurity)|{"q":2,"Q":3}|2|3|
 |[go_json_iterator](https://github.com/json-iterator/go)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q":2,"q":3}|2|3|
 |[go_json_iterator](https://github.com/json-iterator/go)|[go_francoispqt_gojay](https://github.com/francoispqt/gojay)|{"q":2,"Q":3}|2|3|
 |[go_json_iterator](https://github.com/json-iterator/go)|[go_sugawarayuuta_sonnet](https://github.com/sugawarayuuta/sonnet)|{"q":2,"Q":3}|3|2|
 |[go_json_iterator](https://github.com/json-iterator/go)|[go_tidwall_gjson](https://github.com/tidwall/gjson)|{"q":3,"q":2}|2|3|
 |[go_json_iterator](https://github.com/json-iterator/go)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"q":3,"q":2}|2|3|
 |[go_json_iterator](https://github.com/json-iterator/go)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"q":3,"q":2}|2|3|
+|[go_json_iterator](https://github.com/json-iterator/go)|[lua_cjson](https://github.com/openresty/lua-cjson)|{"q":2,"Q":3}|3|2|
 |[go_json_iterator](https://github.com/json-iterator/go)|[python_json](https://docs.python.org/3/library/json.html)|{"q":2,"Q":3}|3|2|
 |[go_json_iterator](https://github.com/json-iterator/go)|[python_msgspec](https://github.com/jcrist/msgspec)|{"q":2,"Q":3}|3|2|
 |[go_json_iterator](https://github.com/json-iterator/go)|[python_orjson](https://github.com/ijl/orjson)|{"q":2,"Q":3}|3|2|
@@ -156,13 +197,16 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |[go_json_iterator](https://github.com/json-iterator/go)|[rust_serde](https://github.com/serde-rs/json)|{"q":2,"Q":3}|3|2|
 |[go_std](https://pkg.go.dev/encoding/json)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q":2,"q":3}|2|3|
 |[go_std](https://pkg.go.dev/encoding/json)|[c_jansson](https://github.com/akheron/jansson)|{"q":2,"Q":3}|2|3|
-|[go_std](https://pkg.go.dev/encoding/json)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":2," ":3}|3|2|
+|[go_std](https://pkg.go.dev/encoding/json)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":2,"Q":3}|2|3|
+|[go_std](https://pkg.go.dev/encoding/json)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"q":2,"q":3}|2|3|
+|[go_std](https://pkg.go.dev/encoding/json)|[cpp_modsecurity](https://github.com/owasp-modsecurity/ModSecurity)|{"q":2,"Q":3}|2|3|
 |[go_std](https://pkg.go.dev/encoding/json)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q":2,"q":3}|2|3|
 |[go_std](https://pkg.go.dev/encoding/json)|[go_francoispqt_gojay](https://github.com/francoispqt/gojay)|{"q":2,"Q":3}|2|3|
 |[go_std](https://pkg.go.dev/encoding/json)|[go_sugawarayuuta_sonnet](https://github.com/sugawarayuuta/sonnet)|{"q":2,"Q":3}|3|2|
 |[go_std](https://pkg.go.dev/encoding/json)|[go_tidwall_gjson](https://github.com/tidwall/gjson)|{"q":3,"q":2}|2|3|
 |[go_std](https://pkg.go.dev/encoding/json)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"q":3,"q":2}|2|3|
 |[go_std](https://pkg.go.dev/encoding/json)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"q":3,"q":2}|2|3|
+|[go_std](https://pkg.go.dev/encoding/json)|[lua_cjson](https://github.com/openresty/lua-cjson)|{"q":2,"Q":3}|3|2|
 |[go_std](https://pkg.go.dev/encoding/json)|[python_json](https://docs.python.org/3/library/json.html)|{"q":2,"Q":3}|3|2|
 |[go_std](https://pkg.go.dev/encoding/json)|[python_msgspec](https://github.com/jcrist/msgspec)|{"q":2,"Q":3}|3|2|
 |[go_std](https://pkg.go.dev/encoding/json)|[python_orjson](https://github.com/ijl/orjson)|{"q":2,"Q":3}|3|2|
@@ -172,7 +216,7 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |[go_std](https://pkg.go.dev/encoding/json)|[rust_json](https://github.com/maciejhirsz/json-rust)|{"q":2,"Q":3}|3|2|
 |[go_std](https://pkg.go.dev/encoding/json)|[rust_serde](https://github.com/serde-rs/json)|{"q":2,"Q":3}|3|2|
 |[go_sugawarayuuta_sonnet](https://github.com/sugawarayuuta/sonnet)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q":2,"q":3}|2|3|
-|[go_sugawarayuuta_sonnet](https://github.com/sugawarayuuta/sonnet)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":2," ":3}|3|2|
+|[go_sugawarayuuta_sonnet](https://github.com/sugawarayuuta/sonnet)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"q":2,"q":3}|2|3|
 |[go_sugawarayuuta_sonnet](https://github.com/sugawarayuuta/sonnet)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q":2,"q":3}|2|3|
 |[go_sugawarayuuta_sonnet](https://github.com/sugawarayuuta/sonnet)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":2,"Q":3}|3|2|
 |[go_sugawarayuuta_sonnet](https://github.com/sugawarayuuta/sonnet)|[go_std](https://pkg.go.dev/encoding/json)|{"q":2,"Q":3}|3|2|
@@ -182,12 +226,15 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |[go_tidwall_gjson](https://github.com/tidwall/gjson)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q\u0000":2,"q":3}|2|3|
 |[go_tidwall_gjson](https://github.com/tidwall/gjson)|[c_jansson](https://github.com/akheron/jansson)|{"q":3,"q":2}|2|3|
 |[go_tidwall_gjson](https://github.com/tidwall/gjson)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":3,"q":2}|2|3|
+|[go_tidwall_gjson](https://github.com/tidwall/gjson)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"q\q":2,"q":3}|3|2|
+|[go_tidwall_gjson](https://github.com/tidwall/gjson)|[cpp_modsecurity](https://github.com/owasp-modsecurity/ModSecurity)|{"q":3,"q":2}|2|3|
 |[go_tidwall_gjson](https://github.com/tidwall/gjson)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q" 2,"q":3}|3|2|
 |[go_tidwall_gjson](https://github.com/tidwall/gjson)|[go_francoispqt_gojay](https://github.com/francoispqt/gojay)|{"q":3,"q":2}|2|3|
 |[go_tidwall_gjson](https://github.com/tidwall/gjson)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":3,"q":2}|2|3|
 |[go_tidwall_gjson](https://github.com/tidwall/gjson)|[go_std](https://pkg.go.dev/encoding/json)|{"q":3,"q":2}|2|3|
 |[go_tidwall_gjson](https://github.com/tidwall/gjson)|[go_sugawarayuuta_sonnet](https://github.com/sugawarayuuta/sonnet)|{"q":3,"q":2}|2|3|
 |[go_tidwall_gjson](https://github.com/tidwall/gjson)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"q\q":2,"q":3}|2|3|
+|[go_tidwall_gjson](https://github.com/tidwall/gjson)|[lua_cjson](https://github.com/openresty/lua-cjson)|{"q":2,"q":3}|2|3|
 |[go_tidwall_gjson](https://github.com/tidwall/gjson)|[python_json](https://docs.python.org/3/library/json.html)|{"q":2,"q":3}|2|3|
 |[go_tidwall_gjson](https://github.com/tidwall/gjson)|[python_msgspec](https://github.com/jcrist/msgspec)|{"q":2,"q":3}|2|3|
 |[go_tidwall_gjson](https://github.com/tidwall/gjson)|[python_orjson](https://github.com/ijl/orjson)|{"q":2,"q":3}|2|3|
@@ -199,11 +246,14 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q\u0000":2,"q":3}|2|3|
 |[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[c_jansson](https://github.com/akheron/jansson)|{"q":3,"q":2}|2|3|
 |[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":3,"q":2}|2|3|
+|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"\u0071":2,"q":3}|3|2|
+|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[cpp_modsecurity](https://github.com/owasp-modsecurity/ModSecurity)|{"q":3,"q":2}|2|3|
 |[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[go_francoispqt_gojay](https://github.com/francoispqt/gojay)|{"q":3,"q":2}|2|3|
 |[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":3,"q":2}|2|3|
 |[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[go_std](https://pkg.go.dev/encoding/json)|{"q":3,"q":2}|2|3|
 |[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[go_sugawarayuuta_sonnet](https://github.com/sugawarayuuta/sonnet)|{"q":3,"q":2}|2|3|
 |[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"\u0071":2,"q":3}|2|3|
+|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[lua_cjson](https://github.com/openresty/lua-cjson)|{"q":2,"q":3}|2|3|
 |[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[python_json](https://docs.python.org/3/library/json.html)|{"q":2,"q":3}|2|3|
 |[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[python_msgspec](https://github.com/jcrist/msgspec)|{"q":2,"q":3}|2|3|
 |[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|[python_orjson](https://github.com/ijl/orjson)|{"q":2,"q":3}|2|3|
@@ -215,6 +265,7 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"\u0071":2,"q":3}|2|3|
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[c_jansson](https://github.com/akheron/jansson)|{"q":3,"q":2}|2|3|
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":3,"q":2}|2|3|
+|[go_valyala_fastjson](https://github.com/valyala/fastjson)|[cpp_modsecurity](https://github.com/owasp-modsecurity/ModSecurity)|{"q":3,"q":2}|2|3|
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"\u0071":2,"q":3}|2|3|
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[go_francoispqt_gojay](https://github.com/francoispqt/gojay)|{"q":3,"q":2}|2|3|
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":3,"q":2}|2|3|
@@ -222,6 +273,7 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[go_sugawarayuuta_sonnet](https://github.com/sugawarayuuta/sonnet)|{"q":3,"q":2}|2|3|
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[go_tidwall_gjson](https://github.com/tidwall/gjson)|{"q\q":2,"q":3}|2|3|
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"\u0071":2,"q":3}|2|3|
+|[go_valyala_fastjson](https://github.com/valyala/fastjson)|[lua_cjson](https://github.com/openresty/lua-cjson)|{"q":2,"q":3}|2|3|
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[python_json](https://docs.python.org/3/library/json.html)|{"q":2,"q":3}|2|3|
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[python_msgspec](https://github.com/jcrist/msgspec)|{"q":2,"q":3}|2|3|
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[python_orjson](https://github.com/ijl/orjson)|{"q":2,"q":3}|2|3|
@@ -230,8 +282,16 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[python_ujson](https://github.com/ultrajson/ultrajson)|{"q":2,"q":3}|2|3|
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[rust_json](https://github.com/maciejhirsz/json-rust)|{"q":2,"q":3}|2|3|
 |[go_valyala_fastjson](https://github.com/valyala/fastjson)|[rust_serde](https://github.com/serde-rs/json)|{"q":2,"q":3}|2|3|
+|[lua_cjson](https://github.com/openresty/lua-cjson)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q":2,"q":3}|2|3|
+|[lua_cjson](https://github.com/openresty/lua-cjson)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"q":2,"q":3}|2|3|
+|[lua_cjson](https://github.com/openresty/lua-cjson)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q":2,"q":3}|2|3|
+|[lua_cjson](https://github.com/openresty/lua-cjson)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":2,"Q":3}|3|2|
+|[lua_cjson](https://github.com/openresty/lua-cjson)|[go_std](https://pkg.go.dev/encoding/json)|{"q":2,"Q":3}|3|2|
+|[lua_cjson](https://github.com/openresty/lua-cjson)|[go_tidwall_gjson](https://github.com/tidwall/gjson)|{"q":2,"q":3}|2|3|
+|[lua_cjson](https://github.com/openresty/lua-cjson)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"q":2,"q":3}|2|3|
+|[lua_cjson](https://github.com/openresty/lua-cjson)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"q":2,"q":3}|2|3|
 |[python_json](https://docs.python.org/3/library/json.html)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q":2,"q":3}|2|3|
-|[python_json](https://docs.python.org/3/library/json.html)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":2," ":3}|3|2|
+|[python_json](https://docs.python.org/3/library/json.html)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"q":2,"q":3}|2|3|
 |[python_json](https://docs.python.org/3/library/json.html)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q":2,"q":3}|2|3|
 |[python_json](https://docs.python.org/3/library/json.html)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":2,"Q":3}|3|2|
 |[python_json](https://docs.python.org/3/library/json.html)|[go_std](https://pkg.go.dev/encoding/json)|{"q":2,"Q":3}|3|2|
@@ -239,7 +299,7 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |[python_json](https://docs.python.org/3/library/json.html)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"q":2,"q":3}|2|3|
 |[python_json](https://docs.python.org/3/library/json.html)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"q":2,"q":3}|2|3|
 |[python_msgspec](https://github.com/jcrist/msgspec)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q":2,"q":3}|2|3|
-|[python_msgspec](https://github.com/jcrist/msgspec)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":2," ":3}|3|2|
+|[python_msgspec](https://github.com/jcrist/msgspec)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"q":2,"q":3}|2|3|
 |[python_msgspec](https://github.com/jcrist/msgspec)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q":2,"q":3}|2|3|
 |[python_msgspec](https://github.com/jcrist/msgspec)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":2,"Q":3}|3|2|
 |[python_msgspec](https://github.com/jcrist/msgspec)|[go_std](https://pkg.go.dev/encoding/json)|{"q":2,"Q":3}|3|2|
@@ -247,7 +307,7 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |[python_msgspec](https://github.com/jcrist/msgspec)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"q":2,"q":3}|2|3|
 |[python_msgspec](https://github.com/jcrist/msgspec)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"q":2,"q":3}|2|3|
 |[python_orjson](https://github.com/ijl/orjson)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q":2,"q":3}|2|3|
-|[python_orjson](https://github.com/ijl/orjson)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":2," ":3}|3|2|
+|[python_orjson](https://github.com/ijl/orjson)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"q":2,"q":3}|2|3|
 |[python_orjson](https://github.com/ijl/orjson)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q":2,"q":3}|2|3|
 |[python_orjson](https://github.com/ijl/orjson)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":2,"Q":3}|3|2|
 |[python_orjson](https://github.com/ijl/orjson)|[go_std](https://pkg.go.dev/encoding/json)|{"q":2,"Q":3}|3|2|
@@ -255,7 +315,7 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |[python_orjson](https://github.com/ijl/orjson)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"q":2,"q":3}|2|3|
 |[python_orjson](https://github.com/ijl/orjson)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"q":2,"q":3}|2|3|
 |[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q":2,"q":3}|2|3|
-|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":2," ":3}|3|2|
+|[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"q":2,"q":3}|2|3|
 |[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q":2,"q":3}|2|3|
 |[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":2,"Q":3}|3|2|
 |[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|[go_std](https://pkg.go.dev/encoding/json)|{"q":2,"Q":3}|3|2|
@@ -263,7 +323,7 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"q":2,"q":3}|2|3|
 |[python_rapidjson](https://github.com/python-rapidjson/python-rapidjson)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"q":2,"q":3}|2|3|
 |[python_simplejson](https://github.com/simplejson/simplejson)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q":2,"q":3}|2|3|
-|[python_simplejson](https://github.com/simplejson/simplejson)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":2," ":3}|3|2|
+|[python_simplejson](https://github.com/simplejson/simplejson)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"q":2,"q":3}|2|3|
 |[python_simplejson](https://github.com/simplejson/simplejson)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q":2,"q":3}|2|3|
 |[python_simplejson](https://github.com/simplejson/simplejson)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":2,"Q":3}|3|2|
 |[python_simplejson](https://github.com/simplejson/simplejson)|[go_std](https://pkg.go.dev/encoding/json)|{"q":2,"Q":3}|3|2|
@@ -271,7 +331,7 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |[python_simplejson](https://github.com/simplejson/simplejson)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"q":2,"q":3}|2|3|
 |[python_simplejson](https://github.com/simplejson/simplejson)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"q":2,"q":3}|2|3|
 |[python_ujson](https://github.com/ultrajson/ultrajson)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q":2,"q":3}|2|3|
-|[python_ujson](https://github.com/ultrajson/ultrajson)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":2," ":3}|3|2|
+|[python_ujson](https://github.com/ultrajson/ultrajson)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"q":2,"q":3}|2|3|
 |[python_ujson](https://github.com/ultrajson/ultrajson)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q":2,"q":3}|2|3|
 |[python_ujson](https://github.com/ultrajson/ultrajson)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":2,"Q":3}|3|2|
 |[python_ujson](https://github.com/ultrajson/ultrajson)|[go_std](https://pkg.go.dev/encoding/json)|{"q":2,"Q":3}|3|2|
@@ -279,7 +339,7 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |[python_ujson](https://github.com/ultrajson/ultrajson)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"q":2,"q":3}|2|3|
 |[python_ujson](https://github.com/ultrajson/ultrajson)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"q":2,"q":3}|2|3|
 |[rust_json](https://github.com/maciejhirsz/json-rust)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q":2,"q":3}|2|3|
-|[rust_json](https://github.com/maciejhirsz/json-rust)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":2," ":3}|3|2|
+|[rust_json](https://github.com/maciejhirsz/json-rust)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"q":2,"q":3}|2|3|
 |[rust_json](https://github.com/maciejhirsz/json-rust)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q":2,"q":3}|2|3|
 |[rust_json](https://github.com/maciejhirsz/json-rust)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":2,"Q":3}|3|2|
 |[rust_json](https://github.com/maciejhirsz/json-rust)|[go_std](https://pkg.go.dev/encoding/json)|{"q":2,"Q":3}|3|2|
@@ -287,7 +347,7 @@ The project has found 226 parser combinations out of 361 possible (63%) where pa
 |[rust_json](https://github.com/maciejhirsz/json-rust)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"q":2,"q":3}|2|3|
 |[rust_json](https://github.com/maciejhirsz/json-rust)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"q":2,"q":3}|2|3|
 |[rust_serde](https://github.com/serde-rs/json)|[c_cjson](https://github.com/DaveGamble/cJSON)|{"q":2,"q":3}|2|3|
-|[rust_serde](https://github.com/serde-rs/json)|[c_json_parser](https://github.com/json-parser/json-parser)|{"q":2," ":3}|3|2|
+|[rust_serde](https://github.com/serde-rs/json)|[c_mjson](https://github.com/cesanta/mjson/tree/master)|{"q":2,"q":3}|2|3|
 |[rust_serde](https://github.com/serde-rs/json)|[go_buger_jsonparser](https://github.com/buger/jsonparser)|{"q":2,"q":3}|2|3|
 |[rust_serde](https://github.com/serde-rs/json)|[go_json_iterator](https://github.com/json-iterator/go)|{"q":2,"Q":3}|3|2|
 |[rust_serde](https://github.com/serde-rs/json)|[go_std](https://pkg.go.dev/encoding/json)|{"q":2,"Q":3}|3|2|

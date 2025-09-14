@@ -1,5 +1,26 @@
-all:
-	gcc -o client main.c cJSON.c json.c json_parser.c -lm -g -O3 -Wall -Werror -ljansson
+cmake_minimum_required(VERSION 3.10)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_CXX_FLAGS "-g -O3 -Wall -Werror")
+
+project(cpp_client VERSION 1.0)
+# file(GLOB_RECURSE SRC_FILES ..)
+file(GLOB SRC_FILES ./*.cc ./*.h)
+file(GLOB LIB_FILES ./lib/*.cc ./lib/*.h ./lib/*.c)
+add_executable(cpp_client ${SRC_FILES} ${LIB_FILES})
+# add_executable(cpp_client main.cc modsecurity_json.cc modsecurity_json.h mjson.c mjson.h json_parser.cc json_parser.h)
+
+target_link_libraries(cpp_client -lyajl -ljansson -lm)
+# -lm -g -O3 -Wall -Werror -ljansson
+#target_include_directories(cpp_client PRIVATE ${CMAKE_CURRECT_SOURCE_DIR}/include)
+#target_include_directories(cpp_client PUBLIC ${CMAKE_CURRECT_SOURCE_DIR}/modsecurity_mock)
+
+
+# all:
+# 	g++ -o client main.cpp modsecurity_mock/json.cc -g -O3 -Wall -Werror -lyajl
+
+# gcc -o client main.c cJSON.c json.c json_parser.c -lm -g -O3 -Wall -Werror -ljansson
 #-I./lib/jansson-2.14.1/build/include/
 
 # # https://stackoverflow.com/questions/42357101/how-to-create-and-run-a-make-file-for-c

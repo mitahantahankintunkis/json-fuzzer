@@ -95,6 +95,7 @@ impl From<&FuzzRangeConfig> for FuzzRange {
 }
 
 impl FuzzRange {
+    #[inline]
     pub fn map(&self, i: u32, byte_offset: usize) -> Option<u8> {
         match self {
             FuzzRange::MinMax { min, max } => {
@@ -183,9 +184,9 @@ impl Payload {
 
             match &fuzz.mode {
                 FuzzMode::Replace(i) => {
-                    for (j, byte) in fuzz.prefix.iter().enumerate() {
-                        self.bytes[i + j] = *byte;
-                    }
+                    // for (j, byte) in fuzz.prefix.iter().enumerate() {
+                    //     self.bytes[i + j] = *byte;
+                    // }
 
                     for byte_offset in 0..fuzz.config.bytes {
                         let byte = fuzz.range.map(fuzz.value, byte_offset).unwrap();
@@ -197,9 +198,9 @@ impl Payload {
                 }
                 FuzzMode::ReplaceLocked(indices) => {
                     for i in indices {
-                        for (j, byte) in fuzz.prefix.iter().enumerate() {
-                            self.bytes[i + j] = *byte;
-                        }
+                        // for (j, byte) in fuzz.prefix.iter().enumerate() {
+                        //     self.bytes[i + j] = *byte;
+                        // }
 
                         for byte_offset in 0..fuzz.config.bytes {
                             let byte = fuzz.range.map(fuzz.value, byte_offset).unwrap();
@@ -577,7 +578,7 @@ impl<'a> IntoIterator for &'a Payload {
 
 pub fn load_payloads() -> Config {
     let payloads_string =
-        fs::read_to_string("../payloads.toml").expect("Could not read payloads.toml");
+        fs::read_to_string("payloads.toml").expect("Could not read payloads.toml");
     toml::from_str(&payloads_string).expect("Error while parsing payloads.toml")
 }
 
@@ -1499,4 +1500,52 @@ mod tests {
             buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
         );
     }
+
+    // #[test]
+    // fn prefix3() {
+    //     let config: Config = toml::from_str(
+    //         r#"
+    //             [[payloads]]
+    //             name = "duplicate_keys_replace_key1_unicode_surrogate_pair"
+    //             payload = '{"q":2,"$.....@.....":3}'
+    //             datatype = "Int"
+    //             key = "q"
+    //             [[payloads.fuzz]]
+    //             fuzz_range = { Characters = {chars = '0123456789abcdef', length = 4}}
+    //             fuzz_mode = { ReplaceCharacters = '@' }
+    //             prefix = '\u'
+    //             bytes = 4
+    //             [[payloads.fuzz]]
+    //             fuzz_range = { Characters = {chars = '0123456789abcdef', length = 4}}
+    //             fuzz_mode = { ReplaceCharacters = '$' }
+    //             prefix = '\u'
+    //             bytes = 4
+    //     "#,
+    //     )
+    //     .unwrap();
+    //
+    //     let mut payload: Payload = config.payloads[0].clone().into();
+    //
+    //     println!("{:?}", payload.fuzz);
+    //
+    //     for _ in 0..100 {
+    //         print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
+    //         let _ = payload.advance();
+    //     }
+    //
+    //     for _ in 0..(2i32.pow(16)) {
+    //         let _ = payload.advance();
+    //     }
+    //
+    //     for _ in 0..100 {
+    //         print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
+    //         let _ = payload.advance();
+    //     }
+    //
+    //     assert!(
+    //         payload.advance().is_err(),
+    //         "Should not have next\n{}",
+    //         buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+    //     );
+    // }
 }

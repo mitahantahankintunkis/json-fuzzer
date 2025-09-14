@@ -1,9 +1,11 @@
 #!/bin/env python3
+import sys
 from matplotlib.colors import ListedColormap
 import matplotlib.pyplot as plt
 # from matplotlib.text import Bbox
 import numpy as np
 import csv
+from pprint import pprint
 
 # print(plt.style.available)
 plt.style.use('seaborn-v0_8-paper')
@@ -14,6 +16,8 @@ parser_lookup = {
     'c_cjson': 'https://github.com/DaveGamble/cJSON',
     'c_jansson': 'https://github.com/akheron/jansson',
     'c_json_parser': 'https://github.com/json-parser/json-parser',
+    'c_mjson': 'https://github.com/cesanta/mjson/tree/master',
+    'cpp_modsecurity': 'https://github.com/owasp-modsecurity/ModSecurity',
     'go_buger_jsonparser': 'https://github.com/buger/jsonparser',
     'go_francoispqt_gojay': 'https://github.com/francoispqt/gojay',
     'go_json_iterator': 'https://github.com/json-iterator/go',
@@ -22,9 +26,11 @@ parser_lookup = {
     'go_tidwall_gjson': 'https://github.com/tidwall/gjson',
     'go_tidwall_gjson_safe': 'https://github.com/tidwall/gjson',
     'go_valyala_fastjson': 'https://github.com/valyala/fastjson',
+    'lua_cjson': 'https://github.com/openresty/lua-cjson',
     'python_json': 'https://docs.python.org/3/library/json.html',
     'python_msgspec': 'https://github.com/jcrist/msgspec',
     'python_orjson': 'https://github.com/ijl/orjson',
+    'python_rapidjson': 'https://github.com/python-rapidjson/python-rapidjson',
     'python_simplejson': 'https://github.com/simplejson/simplejson',
     'python_ujson': 'https://github.com/ultrajson/ultrajson',
     'rust_json': 'https://github.com/maciejhirsz/json-rust',
@@ -41,11 +47,16 @@ with open('../analyzed/parsing_mismatches.csv', 'r') as f:
     for row in reader:
         if row[0] not in data:
             data[row[0]] = []
+        if row[1] not in data:
+            data[row[1]] = []
 
         data[row[0]].append(row[1:])
+        data[row[1]].append([row[0]] + row[2:])
         keys.add(row[0])
+        keys.add(row[1])
 
     keys = sorted(keys)
+    pprint(data)
 
     print('Gitlab Markdown table:')
     print('|P1|P2|JSON|P1\\["q"]|P2\\["q"]|')
@@ -68,6 +79,14 @@ with open('../analyzed/parsing_mismatches.csv', 'r') as f:
 
             l0 = key
             l1 = best[0]
+
+            if l0 not in parser_lookup:
+                print(l0, 'not in parser_lookup')
+                sys.exit(1)
+
+            if l1 not in parser_lookup:
+                print(l1, 'not in parser_lookup')
+                sys.exit(1)
 
             if l0 in parser_lookup:
                 l0 = f'[{l0}]({parser_lookup[l0]})'
@@ -95,7 +114,7 @@ with open('../analyzed/parsing_mismatches.csv', 'r') as f:
 
     y_pos = np.arange(len(keys))
     plt.yticks(y_pos, keys)
-    plt.title('Parsers retrieving different values when querying the same JSON object')
+    plt.title('JSON parser discrepancy matrix', loc='left')
 
     # plt.tight_layout()
     # plt.subplots_adjust(top=10.925, 
@@ -105,7 +124,7 @@ with open('../analyzed/parsing_mismatches.csv', 'r') as f:
     #                     hspace=0.01, 
     #                     wspace=0.01)
     file_name = '../paper/figures/parsing_mismatches.png'
-    plt.savefig(file_name, bbox_inches='tight', pad_inches=0.1)
+    plt.savefig(file_name, bbox_inches='tight', pad_inches=0.1, dpi=150)
     # plt.savefig(file_name, bbox_inches=Bbox([[-1,0],[5, 5.5]]))
     print('\nSaved plot to', file_name)
 

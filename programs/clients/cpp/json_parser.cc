@@ -1,6 +1,6 @@
 #include "json_parser.h"
 
-#include "json.h"
+#include "lib/json.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -9,18 +9,19 @@
 
 char* return_buffer2[256];
 
-char* parse_json_parser(char* data, char* key) {
+char* parse_json_parser(char* data, char* key, unsigned int key_len) {
     json_value* value = json_parse(data, strlen(data));
 
     if (value && value->type == json_object) {
-        char* ret = PARSE_ERROR;
+        char* ret = (char*)PARSE_ERROR;
         json_object_entry* matched_entry = NULL;
 
-        for (int i = 0; i < value->u.object.length; ++i) {
+        for (unsigned int i = 0; i < value->u.object.length; ++i) {
             json_object_entry entry = value->u.object.values[i];
 
-            if (strncmp(entry.name, key, entry.name_length) == 0) {
-                matched_entry = &entry;
+            if (entry.name_length == key_len && strncmp(entry.name, key, entry.name_length) == 0) {
+				// printf("%s %s %d %d\n", entry.name, key, entry.name_length, key_len);
+                matched_entry = &value->u.object.values[i];
             }
         }
 
@@ -70,6 +71,6 @@ char* parse_json_parser(char* data, char* key) {
         json_value_free(value);
         return ret;
     } else {
-        return PARSE_ERROR;
+        return (char*)PARSE_ERROR;
     }
 }

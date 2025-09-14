@@ -2,9 +2,12 @@ target/
 build/
 data/
 .local/
+.cache/
 venv/
 
-/clients/c/client
+/programs/clients/cpp/build/cpp_client
+/programs/clients/cpp/build/CMakeCache.txt
+/programs/clients/go/main
 
 *.o
 *.bak
