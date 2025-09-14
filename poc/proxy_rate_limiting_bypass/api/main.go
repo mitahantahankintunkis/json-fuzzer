@@ -33,7 +33,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Naive user validation for the hypothetical scenario
-	if form_data.Username != "test" {
+	if form_data.Username != "admin" {
 		http.Error(w, "User does not exist", http.StatusForbidden)
 		return
 	}

