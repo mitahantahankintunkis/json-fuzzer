@@ -37,6 +37,40 @@ COPY programs/clients/go/* .
 RUN go build -v -o /usr/local/bin/go-client main.go
 
 
+# JVM
+FROM clojure:lein AS jvm
+
+# WORKDIR /app
+#
+# COPY ./programs/clients/clojure/app/ .
+
+# RUN lein uberjar && \
+# 	mv target/uberjar/app-0.1.0-SNAPSHOT-standalone.jar ./clojure-client.jar
+
+RUN mkdir -p /usr/src/app
+WORKDIR /usr/src/app
+COPY ./programs/clients/clojure/app/project.clj /usr/src/app/
+RUN lein deps
+COPY ./programs/clients/clojure/app/ /usr/src/app
+RUN mv "$(lein uberjar | sed -n 's/^Created \(.*standalone\.jar\)/\1/p')" ./clojure-client.jar
+
+
+# C++
+FROM ubuntu:latest AS cpp
+
+RUN --mount=target=/var/lib/apt,type=cache,sharing=locked \
+    --mount=target=/var/cache/apt,type=cache,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+	apt-get update && \
+	apt-get install -y cmake g++ libjansson-dev libyajl-dev
+
+# C++
+WORKDIR /app
+COPY ./programs/clients/cpp ./cpp
+WORKDIR /app/cpp/build
+RUN cmake .. && make && cp cpp_client /usr/local/bin/cpp-client
+
+
 # Final
 FROM ubuntu:latest
 
@@ -48,7 +82,7 @@ RUN --mount=target=/var/lib/apt,type=cache,sharing=locked \
     --mount=target=/var/cache/apt,type=cache,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
 	apt-get update && \
-	apt-get install -y cmake g++ libjansson-dev libyajl-dev lua5.4 luarocks
+	apt-get install -y lua5.4 luarocks openjdk-21-jre libyajl-dev php
 
 # RUN apt-get install -y gcc g++ make curl wget python3 make cmake git apt-utils \
 # 	autoconf automake build-essential libcurl4-openssl-dev libgeoip-dev liblmdb-dev libpcre2-dev \
@@ -60,21 +94,17 @@ RUN luarocks install luasocket && \
 COPY --from=rust /usr/local/cargo/bin/json-fuzzer /usr/local/bin/
 COPY --from=rust /usr/local/cargo/bin/test-server /usr/local/bin/
 COPY --from=rust /usr/local/cargo/bin/rust-client /usr/local/bin/
+COPY --from=cpp /usr/local/bin/cpp-client /usr/local/bin/
 COPY --from=go /usr/local/bin/go-client /usr/local/bin/
+COPY --from=jvm /usr/src/app/clojure-client.jar .
 
 COPY ./programs/clients/python/ ./python
-COPY ./programs/clients/cpp/ ./cpp
 COPY ./programs/clients/lua/main.lua .
+COPY ./programs/clients/php/main.php .
 COPY ./programs/test.sh .
 COPY ./programs/run.sh .
 COPY ./programs/payloads.toml .
 COPY ./scripts/analyze.sh .
-
-# C++
-WORKDIR /app/cpp/build
-RUN cmake .. && make && cp cpp_client /usr/local/bin/cpp-client
-
-WORKDIR /app
 
 # Rust
 # WORKDIR /tmp

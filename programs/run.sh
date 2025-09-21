@@ -6,6 +6,8 @@
         go-client $parser_number &
         cpp-client $parser_number &
 		./main.lua $parser_number &
+		java -jar clojure-client.jar $parser_number &
+		php main.php $parser_number &
         # valgrind --leak-check=full -s ./client $parser_number &
         # valgrind --leak-check=full -s cpp_client $parser_number &
     done

@@ -34,6 +34,7 @@ struct Args {
 
 fn fuzz(stream: &mut TcpStream, args: &Args, payload_config: &PayloadConfig) -> Encoder {
     let mut payload: Payload = payload_config.clone().into();
+    // let mut test_payload: Payload = payload_config.clone().into();
     let batch_size: u16 = std::cmp::min(args.buffer_size / 128, u16::MAX as usize) as u16;
     let mut read_buffer: Box<Vec<u8>> = Box::new(vec![0; args.buffer_size]);
     let mut send_buffer: Box<Vec<u8>> = Box::new(vec![0; args.buffer_size]);
@@ -121,6 +122,19 @@ fn fuzz(stream: &mut TcpStream, args: &Args, payload_config: &PayloadConfig) -> 
             byte_offset += data.len();
 
             compression_encoder.add_bytes(&data);
+
+            // let _ = test_payload.advance();
+            // for byte in test_payload.into_iter() {
+            //     print!("{}", byte_to_string(byte));
+            // }
+            //
+            // print!(" -> ");
+            //
+            // for byte in data.into_iter() {
+            //     print!("{}", byte_to_string(*byte));
+            // }
+            //
+            // println!("");
         }
 
         received_messages += 1;
@@ -159,11 +173,13 @@ fn handle_client(stream: &mut TcpStream, args: &Args) {
         .expect("Could not parse client name")
         .to_string();
 
-    for payload_config in &config.payloads {
-        if !fs::exists("data/").expect("Could not check if data directory exists") {
-            let _ = fs::create_dir("data");
-        }
+    let mut skipped_configs = 0;
 
+    if !fs::exists("data/").expect("Could not check if data directory exists") {
+        let _ = fs::create_dir("data");
+    }
+
+    for payload_config in &config.payloads {
         // let digest = md5::compute(base_payload);
         // let file_name: String = format!(
         //     "../data/{}-{}-{}.bin",
@@ -173,6 +189,7 @@ fn handle_client(stream: &mut TcpStream, args: &Args) {
 
         if fs::exists(&file_name).expect("Could not check if file exists") {
             println!("'{}' already exists. Skipping fuzzing.", file_name);
+            skipped_configs += 1;
             continue;
         }
 
@@ -194,6 +211,10 @@ fn handle_client(stream: &mut TcpStream, args: &Args) {
         let mut file = fs::File::create(&file_name.as_str()).expect("Could not create file");
         file.write_all(&compressed.bytes)
             .expect("Could not write to file");
+    }
+
+    if skipped_configs != config.payloads.len() {
+        println!("{} finished parsing.", client_name);
     }
 }
 

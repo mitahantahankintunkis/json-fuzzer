@@ -17,6 +17,8 @@ parser_lookup = {
     'c_jansson': 'https://github.com/akheron/jansson',
     'c_json_parser': 'https://github.com/json-parser/json-parser',
     'c_mjson': 'https://github.com/cesanta/mjson/tree/master',
+    'clojure_cheshire': 'https://github.com/dakrone/cheshire/tree/master',
+    'clojure_jsonista': 'https://github.com/metosin/jsonista',
     'cpp_modsecurity': 'https://github.com/owasp-modsecurity/ModSecurity',
     'go_buger_jsonparser': 'https://github.com/buger/jsonparser',
     'go_francoispqt_gojay': 'https://github.com/francoispqt/gojay',
@@ -26,7 +28,9 @@ parser_lookup = {
     'go_tidwall_gjson': 'https://github.com/tidwall/gjson',
     'go_tidwall_gjson_safe': 'https://github.com/tidwall/gjson',
     'go_valyala_fastjson': 'https://github.com/valyala/fastjson',
+    'java_jackson': 'https://github.com/FasterXML/jackson-databind',
     'lua_cjson': 'https://github.com/openresty/lua-cjson',
+    'php_std': 'https://www.php.net/manual/en/book.json.php',
     'python_json': 'https://docs.python.org/3/library/json.html',
     'python_msgspec': 'https://github.com/jcrist/msgspec',
     'python_orjson': 'https://github.com/ijl/orjson',
@@ -45,6 +49,8 @@ with open('../analyzed/parsing_mismatches.csv', 'r') as f:
 
     # go_buger_jsonparser	go_francoispqt_gojay	\t{"q":2,"q":3}	2	3
     for row in reader:
+        # if 'python' in row[0]: continue
+        # if 'python' in row[1]: continue
         if row[0] not in data:
             data[row[0]] = []
         if row[1] not in data:
@@ -96,6 +102,38 @@ with open('../analyzed/parsing_mismatches.csv', 'r') as f:
 
             # print(f'|{l0}|{l1}|<pre lang="json">{best[1]}</pre>|`{best[2]}`|`{best[3]}`|')
             print(f'|{l0}|{l1}|{best[1]}|{best[2]}|{best[3]}|')
+
+    print('')
+    print('')
+    print('LaTex table:')
+    print('\\begin{longtable}{lllll}')
+    print('    P1 & P2 & JSON & P1["q"] & P2["q"] \\\\')
+    print('    \\hline \\\\')
+
+    for key in keys:
+        row = data[key]
+        row_keys = [c[0] for c in row]
+
+        for key1 in sorted(set(row_keys)):
+            cols = [c for c in row if c[0] == key1]
+            best = cols[0]
+
+            # Find payload with the shortest length
+            for c in cols:
+                if len(best[1]) > len(c[1]):
+                    best = c
+
+            l0 = key
+            l1 = best[0]
+            l0 = l0.replace('_', '\\_')
+            l1 = l1.replace('_', '\\_')
+            best[1] = best[1].replace('\\', '\\textbackslash ')
+            best[1] = best[1].replace('{', '\\{')
+            best[1] = best[1].replace('}', '\\}')
+
+            print(f'    {l0} & {l1} & \\str{{{best[1]}}} & \\str{{{best[2]}}} & \\str{{{best[3]}}} \\\\')
+    print('    &&&&')
+    print('\\end{longtable}')
 
     # m = [
     # [1,0,2,0,0],

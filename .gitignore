@@ -1,7 +1,7 @@
 target/
 build/
 data/
-.local/
+local/
 .cache/
 venv/
 
@@ -14,3 +14,14 @@ venv/
 *.lock
 *.bin
 *.ods
+
+# Latex
+*.aux
+*.bcf
+*.log
+*.out
+*.run.xml
+*.toc
+*.xmpdata
+*.xmpi
+

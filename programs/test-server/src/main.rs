@@ -140,7 +140,7 @@ fn main() -> std::io::Result<()> {
     });
 
     let mut reader = rustyline::DefaultEditor::new().unwrap();
-    let re = Regex::new(r"\\x\d{2}").unwrap();
+    let re = Regex::new(r"\\x[0-9a-f]{2}").unwrap();
 
     loop {
         let line = reader.readline("\n\n\x1b[2K\x1b[1m=> ");
