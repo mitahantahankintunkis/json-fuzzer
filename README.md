@@ -1,6 +1,6 @@
 # Master's Thesis Proposal (draft)
 
-## Cross-language parser interoperability
+## Cross-language JSON parser interoperability
 
 **Student: Oula Kivalo**
 
@@ -18,13 +18,17 @@ Despite the widespread use of JSON, academic research on JSON parser interoperab
 
 
 ## Goals and contributions
-The main goal of the thesis is to document discrepancies between parsing results that may lead to vulnerabilities. These results will be compiled into a compatibility matrix showing which parsers should not be used together. An example of this matrix can be found in [Preliminary results](#preliminary-results). A secondary goal is to search for vulnerabilities in individual parsers, although no results are guaranteed for this.
+The main goal of the thesis is to document discrepancies between parsing results that may lead to vulnerabilities. These results will be compiled into a compatibility matrix showing which parsers should not be used together. An example of this matrix can be found in [Preliminary results](#preliminary-results).
+
+Secondary goal of the thesis is to search for vulnerabilities in JSON parsers and other open source projects, although no major results are guaranteed for this. Examples of potential vulnerabilities can be found at [/poc/proxy_rate_limiting_bypass/](./poc/proxy_rate_limiting_bypass/) and [/poc/API_gateway_schema_bypass/](./poc/API_gateway_schema_bypass/).
 
 The aim is to test at least 40 parsers across 7 to 10 languages which will be selected from [json.org](https://json.org) and GitHub based on their popularity. The research may also be expanded to include JSON parsers in SQL database engines such as SQLite and PostgreSQL.
 
 
 ## Methodology
 The thesis will focus on testing how parsers handle different character encodings and duplicate keys in JSON objects. Research will be conducted using a custom fuzzing solution, which mutates different test cases selected from test suites of popular parsers and edge cases identified by the JSON specification\[5]. These mutated test cases will be parsed with different parsers, whose results and execution times are stored for future analyzing.
+
+Using the results gained from the fuzzer, open source projects are manually investigated for potential vulnerabilities stemming from JSON parsing.
 
 
 ## Schedule
@@ -45,10 +49,10 @@ This project includes a proof-of-concept fuzzing application capable of testing 
 
 The project currently consists of three main components:
 
-* **Fuzzer**: A Rust-based application that generates test cases and distributes them to parser clients via TCP sockets. Test cases are based on templates defined in [./programs/payloads.toml](programs/payloads.toml) and mutated according to configuration parameters.\
+* **Fuzzer**: A Rust-based application that generates test cases and distributes them to parser clients via TCP sockets. Test cases are based on templates defined in [/programs/payloads.toml](./programs/payloads.toml) and mutated according to configuration parameters.\
 The fuzzer can be further optimized and needs new features for more complex test cases.
 
-* **Clients**: Each language has its own client that includes multiple parsers.\
+* **Clients**: Each language has its own client which includes multiple parsers.\
 Currently, seven clients are implemented for Rust, Go, Python, Lua, C/C++, Clojure/Java, and PHP, containing a total of 26 different parsers.
 
 * **Analyzer**: A naive and limited implementation written in Rust that compares results produced by different parsers for each test case and saves interesting ones in a `.csv` file for manual review.\
@@ -68,17 +72,17 @@ Once inside the image, run the following commands:
 ./analyze.sh
 ```
 
-
 ### Preliminary results
 The project currently focuses only on investigating how different parsers handle JSON objects containing duplicate keys. The latest JSON specification does not specify the expected behavior for duplicate keys, leaving it to be implementation specific\[5]. This ambiguity has led to vulnerabilities before, for example in Apache CouchDB, where inconsistencies between Erlang and Javascript JSON parsers enabled an attacker to potentially gain administrative access to any public-facing CouchDB instance\[4].
 
-To see examples of how these discrepancies can be used to bypass security measures, see [./poc/API_gateway_schema_bypass/](poc/API_gateway_schema_bypass/) and [./poc/proxy_rate_limiting_bypass/](poc/proxy_rate_limiting_bypass/)
-
-The project has found 364 parser combinations out of 676 possible (54%) where parsers return different values in JSON objects when querying for the same key. These cases are listed in the figure below and the table located at [./analyzed/README.md](analyzed/README.md).
+The project has found 364 parser combinations out of 676 possible (54%) where parsers return different values in JSON objects when querying for the same key. These cases are listed in the figure below and the table located at [/analyzed/README.md](./analyzed/README.md).
 
 ![JSON parsing mismatches](paper/figures/parsing_mismatches.png "JSON parsing mismatches")
 
 *Figure 1: Parsing mismatches. A cell is colored in blue if the parsers in the corresponding column and row can retrieve different values when querying the same key in the same JSON object.*
+
+### Paper
+A preliminary version of the paper can be found at [/paper/thesis.pdf](./paper/thesis.pdf). It only contains some of my initial thoughts of the subject and will be rewritten later, but the general structure is there.
 
 
 ## References

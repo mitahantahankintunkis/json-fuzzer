@@ -359,7 +359,7 @@ There are a few character sequences which have a special meaning and are encoded
 	$\texttt{\textbackslash t}$ & Horizontal tab & $\texttt{09}$ in hexadecimal \\
 	$\texttt{\textbackslash r}$ & Carriage return & $\texttt{0D}$ in hexadecimal \\
 	$\texttt{\textbackslash x}a$ & Single byte. & Single byte with a \\
-	 & $a$ is as a two digit hexadecimal number & value of on $a$  \\
+	 & $a$ is as a two digit hexadecimal number & value of $a$  \\
 	 & with a range of $a \in \{0, 1, ..., 255\}$ & 
 	% $$ & Encoded as a single byte placed between & $$ \\
 	% $$ & its surrounding characters & $$ \\
@@ -487,12 +487,12 @@ Run-length encoding (RLE) is a lossless form of data compression where consecuti
 \section{Methods}
 
 
-\subsection{Testing parsers}
-Parsers were tested using a custom fuzzing application.
-
-
 \subsection{Parser selection}
 The parsers were selected from \url{json.org} and GitHub based on their popularity.
+
+
+\subsection{Testing parsers}
+Parsers were tested using a custom fuzzing application.
 
 
 \subsection{Test case selection}
@@ -553,7 +553,7 @@ The server saved the parsing results for later analysis. Due to the total size o
 The set of parsing results $S$ contains the following elements:
 
 \begin{equation}
-	S = \{(p, d, r) \mid p \in P, d,r \in \{0,1\}^*\}
+	S \in \{(p, d, r) \mid p \in P, d,r \in \{0,1\}^*\}
 \end{equation}
 
 where $P$ is the set of parsers, $d$ is binary representation of JSON data, and $r$ is the parsing result parser $p$ produced for input $d$.

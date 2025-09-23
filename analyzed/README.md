@@ -1,3 +1,7 @@
+# Parsing mismatches
+
+The table below contains JSON objects which are parsed differently between two JSON parsers. These objects can be used to for example bypass input validation or priviledge escalation.
+
 |P1|P2|JSON|P1\["q"]|P2\["q"]|
 |-------|-------|----|:-----:|:-----:|
 |[c_cjson](https://github.com/DaveGamble/cJSON)|[c_jansson](https://github.com/akheron/jansson)|{"q":2,"q":3}|2|3|
@@ -365,4 +369,4 @@
 |[rust_serde](https://github.com/serde-rs/json)|[go_tidwall_gjson_safe](https://github.com/tidwall/gjson)|{"q":2,"q":3}|2|3|
 |[rust_serde](https://github.com/serde-rs/json)|[go_valyala_fastjson](https://github.com/valyala/fastjson)|{"q":2,"q":3}|2|3|
 
-*Parsing mismatches. Columns P1 and P2 contain different parsers, while columns P1\["q"] and P2\["q"] list values the corresponding parsers retrieve under key 'q'*
+*Table 2: Parsing mismatches. Columns P1 and P2 contain different parsers, while columns P1\["q"] and P2\["q"] list values the corresponding parsers retrieve under key 'q'*
