@@ -39,6 +39,13 @@ parser_lookup = {
     'python_ujson': 'https://github.com/ultrajson/ultrajson',
     'rust_json': 'https://github.com/maciejhirsz/json-rust',
     'rust_serde': 'https://github.com/serde-rs/json',
+    'ruby_std': 'https://docs.ruby-lang.org/en/master/JSON.html',
+    'c_frozen': 'https://github.com/cesanta/frozen',
+    'cpp_boost': 'https://github.com/boostorg/boost',
+    'cpp_poco': 'https://github.com/pocoproject/poco',
+    'c_jsmn': 'https://github.com/zserge/jsmn',
+    'dotnet_std': 'https://learn.microsoft.com/en-us/dotnet/api/system.text.json?view=net-9.0',
+    'c_json_c': 'https://github.com/json-c/json-c',
 }
 
 with open('../analyzed/parsing_mismatches.csv', 'r') as f:
@@ -134,6 +141,27 @@ with open('../analyzed/parsing_mismatches.csv', 'r') as f:
             print(f'    {l0} & {l1} & \\str{{{best[1]}}} & \\str{{{best[2]}}} & \\str{{{best[3]}}} \\\\')
     print('    &&&&')
     print('\\end{longtable}')
+
+    print('')
+    print('')
+    print('LaTex parser table:')
+    print('\\begin{table}[htb]')
+    print('    \\centering')
+    print('    \\caption{JSON libraries}')
+    print('    \\label{tbl:parsers}')
+    print('    \\begin{tabular}{ll}')
+    print('        Parser ID & Source URL \\\\')
+    print('        \\hline \\\\')
+
+    for (key, url) in parser_lookup.items():
+        id = key.replace('_', '\\_')
+        print(f'        \\parser{{{id}}} & \\url{{{url}}} \\\\')
+
+    print('        &')
+    print('    \\end{tabular}')
+    print('\\end{table}')
+    print()
+    print(f'Total of {len(parser_lookup)} parsers')
 
     # m = [
     # [1,0,2,0,0],

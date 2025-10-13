@@ -5,6 +5,7 @@ use core::panic::PanicInfo;
 use std::env;
 use std::io::prelude::*;
 use std::net::TcpStream;
+use std::os::unix::net::UnixStream;
 use std::process::exit;
 
 #[macro_use]
@@ -44,7 +45,7 @@ fn parse_json(data: &[u8], key: &str, _datatype: &Datatype) -> String {
 }
 
 fn main() -> std::io::Result<()> {
-    let mut stream: TcpStream;
+    let mut stream: UnixStream;
     let args: Vec<String> = env::args().collect();
 
     let parser_number = if args.len() == 2 {
@@ -60,15 +61,14 @@ fn main() -> std::io::Result<()> {
     };
 
     loop {
-        if let Ok(s) = TcpStream::connect("127.0.0.1:5000") {
+        if let Ok(s) = UnixStream::connect("/tmp/fuzzer.sock") {
+            // if let Ok(s) = TcpStream::connect("127.0.0.1:5000") {
             stream = s;
             break;
         }
 
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
-
-    stream.set_nodelay(true)?;
 
     let mut name_buffer: [u8; 64] = [0; 64];
     name_buffer[0..name.len()].copy_from_slice(name.as_bytes());
@@ -81,31 +81,32 @@ fn main() -> std::io::Result<()> {
     let mut write_buffer: Box<Vec<u8>> = Box::new(Vec::new());
 
     loop {
-        let mut header: [u8; 8] = [0; 8];
+        let mut header = [0u8; 10];
 
         if stream.read_exact(&mut header).is_err() {
             return Ok(());
         }
 
-        let buffer_size = u32::from_le_bytes(header[0..4].try_into().unwrap());
-        let payload_size = u16::from_le_bytes(header[4..6].try_into().unwrap());
-        let batch_size = u16::from_le_bytes(header[6..8].try_into().unwrap());
+        let buffer_size = u32::from_le_bytes(header[0..4].try_into().unwrap()) as usize;
+        let payload_size = u16::from_le_bytes(header[4..6].try_into().unwrap()) as usize;
+        let batch_size = u32::from_le_bytes(header[6..10].try_into().unwrap()) as usize;
 
-        if read_buffer.len() != usize::from(batch_size) * usize::from(payload_size) {
-            read_buffer = Box::new(vec![0; usize::from(batch_size) * usize::from(payload_size)]);
+        // if read_buffer.len() != batch_size * payload_size {
+        if read_buffer.len() != buffer_size {
+            read_buffer = Box::new(vec![0; buffer_size]);
         }
 
-        if write_buffer.len() != (buffer_size as usize) {
-            write_buffer = Box::new(vec![0; buffer_size.try_into().unwrap()]);
+        if write_buffer.len() != buffer_size << 2 {
+            write_buffer = Box::new(vec![0; buffer_size << 2]);
         }
 
-        match stream.read_exact(&mut read_buffer) {
+        match stream.read_exact(&mut read_buffer[0..batch_size * payload_size]) {
             Ok(()) => {
                 let mut byte_offset: usize = 4;
 
-                for batch in 0..usize::from(batch_size) {
-                    let data: &[u8] = &read_buffer[(batch * usize::from(payload_size))
-                        ..((batch + 1) * usize::from(payload_size))];
+                for batch in 0..(batch_size as usize) {
+                    let data: &[u8] =
+                        &read_buffer[(batch * payload_size)..((batch + 1) * payload_size)];
 
                     let message = match parser_number {
                         0 => parse_serde(data, "q", &Datatype::Int),

@@ -1,2 +1,4 @@
-CMakeCache.txt
-cpp_client
+**/CMakeCache.txt
+**/cpp_client
+**/bin/
+**/obj/

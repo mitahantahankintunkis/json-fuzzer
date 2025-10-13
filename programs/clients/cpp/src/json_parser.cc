@@ -2,14 +2,13 @@
 
 #include "lib/json.h"
 #include <stdio.h>
-#include <string.h>
+#include <cstring>
 
 #define KEY_NOT_FOUND "KEY_NOT_FOUND"
 #define PARSE_ERROR "PARSE_ERROR"
 
-char* return_buffer2[256];
-
-char* parse_json_parser(char* data, char* key, unsigned int key_len) {
+char* parse_json_parser(char* data, int json_size, char* key, char* buf, int buf_size) {
+	unsigned int key_len = 1;
     json_value* value = json_parse(data, strlen(data));
 
     if (value && value->type == json_object) {
@@ -20,7 +19,6 @@ char* parse_json_parser(char* data, char* key, unsigned int key_len) {
             json_object_entry entry = value->u.object.values[i];
 
             if (entry.name_length == key_len && strncmp(entry.name, key, entry.name_length) == 0) {
-				// printf("%s %s %d %d\n", entry.name, key, entry.name_length, key_len);
                 matched_entry = &value->u.object.values[i];
             }
         }
@@ -33,8 +31,8 @@ char* parse_json_parser(char* data, char* key, unsigned int key_len) {
                     break;
 
                 case json_null:
-                    strcpy((char*)return_buffer2, "null");
-                    ret = (char*)return_buffer2;
+                    strcpy((char*)buf, "null");
+                    ret = (char*)buf;
                     break;
 
                 case json_object:
@@ -44,26 +42,28 @@ char* parse_json_parser(char* data, char* key, unsigned int key_len) {
                     break;
 
                 case json_integer:
-                    snprintf((char*)return_buffer2, sizeof(return_buffer2), "%d", (int)match->u.integer);
-                    ret = (char*)return_buffer2;
+                    snprintf((char*)buf, buf_size - 1, "%d", (int)match->u.integer);
+                    ret = (char*)buf;
                     break;
 
                 case json_double:
-                    snprintf((char*)return_buffer2, sizeof(return_buffer2), "%f", match->u.dbl);
-                    ret = (char*)return_buffer2;
+                    snprintf((char*)buf, buf_size - 1, "%f", match->u.dbl);
+                    ret = (char*)buf;
                     break;
 
                 case json_string:
-                    ret = strdup(match->u.string.ptr);
+                    // ret = strdup(match->u.string.ptr);
+					strncpy((char*)buf, match->u.string.ptr, buf_size - 1);
+                    ret = (char*)buf;
                     break;
 
                 case json_boolean:
                     if (match->u.boolean) {
-                        strcpy((char*)return_buffer2, "true");
+                        strcpy((char*)buf, "true");
                     } else {
-                        strcpy((char*)return_buffer2, "false");
+                        strcpy((char*)buf, "false");
                     }
-                    ret = (char*)return_buffer2;
+                    ret = (char*)buf;
                     break;
             }
         }
@@ -71,6 +71,7 @@ char* parse_json_parser(char* data, char* key, unsigned int key_len) {
         json_value_free(value);
         return ret;
     } else {
+        json_value_free(value);
         return (char*)PARSE_ERROR;
     }
 }

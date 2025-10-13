@@ -82,7 +82,7 @@ The project has found 364 parser combinations out of 676 possible (54%) where pa
 *Figure 1: Parsing mismatches. A cell is colored in blue if the parsers in the corresponding column and row can retrieve different values when querying the same key in the same JSON object.*
 
 ### Paper
-A preliminary version of the paper can be found at [/paper/thesis.pdf](./paper/thesis.pdf). It only contains some of my initial thoughts of the subject and will be rewritten later, but the general structure is there.
+A preliminary version of the paper can be found at [/paper/thesis.pdf](./paper/thesis.pdf). It only contains some of my initial thoughts on the subject and will be rewritten later, but the general structure is there.
 
 
 ## References

@@ -1,0 +1,271 @@
+# [[payloads]]
+# name = "dos1"
+# payload = '{"q":1}'
+# [[payloads.fuzz]]
+#
+# [[payloads]]
+# name = "dos2"
+# payload = '{"q":1}'
+# [[payloads.fuzz]]
+# remove_after = 1
+
+[[payloads]]
+name = "dos2"
+payload = '{"q":1}'
+[[payloads.fuzz]]
+map = { Characters = { chars = '09e-+",.[]{}', byte_count = 2 }}
+# [[payloads.fuzz]]
+# map = { Characters = { chars = '09e-+",.[]{}', byte_count = 1 }}
+
+
+[[payloads]]
+name = "dos3"
+payload = '{"q":1}'
+[[payloads.fuzz]]
+
+[[payloads]]
+name = "dos4"
+payload = '{"q":9e9}'
+[[payloads.fuzz]]
+# map = { Word = { byte_count = 2 }}
+
+# [[payloads]]
+# name = "dos4"
+# payload = '{"q":1}'
+# [[payloads.fuzz]]
+# map = { Word = { byte_count = 2 }}
+# replace_after = 1
+
+
+## Simple insertion
+#[[payloads]]
+#name = "duplicate_keys_insert_single_byte"
+#payload = '{"q":2,"q":3}'
+#
+#[[payloads]]
+#name = "duplicate_keys_insert_two_bytes"
+#payload = '{"q":2,"q":3}'
+#[[payloads.fuzz]]
+#id = '0'
+#[[payloads.fuzz]]
+#right_of = '0'
+#
+#
+## Simple replace
+#[[payloads]]
+#name = "duplicate_keys_replace_single_byte"
+#payload = '{"q":2,"q":3}'
+#[[payloads.fuzz]]
+#remove_after = 1
+#
+#[[payloads]]
+#name = "duplicate_keys_replace_two_bytes"
+#payload = '{"q":2,"q":3}'
+#[[payloads.fuzz]]
+#remove_after = 1
+#id = '0'
+#[[payloads.fuzz]]
+#remove_after = 1
+#right_of = '0'
+#
+#
+## Individual key fuzzing
+## [[payloads]]
+## name = "duplicate_keys_replace_four_bytes0"
+## payload = '{"@...":2,"q":3}'
+## datatype = "Int"
+## key = "q"
+## [[payloads.fuzz]]
+## fuzz_mode = { ReplaceCharacters = '@' }
+## bytes = 4
+##
+## [[payloads]]
+## name = "duplicate_keys_replace_four_bytes1"
+## payload = '{"q":2,"@...":3}'
+## datatype = "Int"
+## key = "q"
+## [[payloads.fuzz]]
+## fuzz_mode = { ReplaceCharacters = '@' }
+## bytes = 4
+#
+#
+## Unicode string enconding
+#[[payloads]]
+#name = "duplicate_keys_insert_unicode"
+#payload = '{"q":2,"q":3}'
+#[[payloads.fuzz]]
+#map = { Characters = { chars = '0123456789abcdef', byte_count = 4 }}
+#prefix = '\u'
+##fuzz_range = { Characters = {chars = '0123456789abcdef', length = 4}}
+##bytes = 4
+#
+#[[payloads]]
+#name = "duplicate_keys_replace_unicode"
+#payload = '{"q":2,"q":3}'
+#[[payloads.fuzz]]
+#map = { Characters = { chars = '0123456789abcdef', byte_count = 4 }}
+#prefix = '\u'
+#remove_after = 1
+##fuzz_range = { Characters = {chars = '0123456789abcdef', length = 4}}
+##bytes = 4
+#
+## [[payloads]]
+## name = "duplicate_keys_replace_key0_unicode"
+## payload = '{"@.....":2,"q":3}'
+## [[payloads.fuzz]]
+## fuzz_range = { Characters = {chars = '0123456789abcdef', length = 4}}
+## fuzz_mode = { ReplaceCharacters = '@' }
+## prefix = '\u'
+## bytes = 4
+##
+## [[payloads]]
+## name = "duplicate_keys_replace_key1_unicode"
+## payload = '{"q":2,"@.....":3}'
+## [[payloads.fuzz]]
+## fuzz_range = { Characters = {chars = '0123456789abcdef', length = 4}}
+## fuzz_mode = { ReplaceCharacters = '@' }
+## prefix = '\u'
+## bytes = 4
+#
+## UTF-16 surrogate pairs
+## [[payloads]]
+## name = "duplicate_keys_replace_key0_unicode_surrogate_pair"
+## payload = '{"$.....@.....":2,"q":3}'
+## datatype = "Int"
+## key = "q"
+## [[payloads.fuzz]]
+## fuzz_range = { Characters = {chars = '0123456789abcdef', length = 4}}
+## fuzz_mode = { ReplaceCharacters = '@' }
+## prefix = '\u'
+## bytes = 4
+## [[payloads.fuzz]]
+## fuzz_range = { Characters = {chars = '0123456789abcdef', length = 4}}
+## fuzz_mode = { ReplaceCharacters = '$' }
+## prefix = '\u'
+## bytes = 4
+#
+## [[payloads]]
+## name = "duplicate_keys_replace_key1_unicode_surrogate_pair"
+## payload = '{"q":2,"$.....@.....":3}'
+## datatype = "Int"
+## key = "q"
+## [[payloads.fuzz]]
+## fuzz_range = { Characters = {chars = '0123456789abcdef', length = 4}}
+## fuzz_mode = { ReplaceCharacters = '@' }
+## prefix = '\u'
+## bytes = 4
+## [[payloads.fuzz]]
+## fuzz_range = { Characters = {chars = '0123456789abcdef', length = 4}}
+## fuzz_mode = { ReplaceCharacters = '$' }
+## prefix = '\u'
+## bytes = 4
+#
+#
+## URL string enconding
+#[[payloads]]
+#name = "duplicate_keys_insert_url"
+#payload = '{"q":2,"q":3}'
+#[[payloads.fuzz]]
+#map = { Characters = { chars = '0123456789abcdef', byte_count = 2 }}
+#prefix = '%'
+#
+#[[payloads]]
+#name = "duplicate_keys_insert_two_url"
+#payload = '{"q":2,"q":3}'
+#[[payloads.fuzz]]
+#map = { Characters = { chars = '0123456789abcdef', byte_count = 2 }}
+#prefix = '%'
+#id = '0'
+#[[payloads.fuzz]]
+#map = { Characters = { chars = '0123456789abcdef', byte_count = 2 }}
+#prefix = '%'
+#right_of = '0'
+#
+#[[payloads]]
+#name = "duplicate_keys_replace_url"
+#payload = '{"q":2,"q":3}'
+#[[payloads.fuzz]]
+#map = { Characters = { chars = '0123456789abcdef', byte_count = 2 }}
+#prefix = '%'
+#remove_after = 1
+#
+#[[payloads]]
+#name = "duplicate_keys_replace_two_url"
+#payload = '{"q":2,"q":3}'
+#[[payloads.fuzz]]
+#map = { Characters = { chars = '0123456789abcdef', byte_count = 2 }}
+#prefix = '%'
+#remove_after = 1
+#id = '0'
+#[[payloads.fuzz]]
+#map = { Characters = { chars = '0123456789abcdef', byte_count = 2 }}
+#prefix = '%'
+#remove_after = 1
+#right_of = '0'
+#
+#[[payloads]]
+#name = "duplicate_keys_insert_css"
+#payload = '{"q":2,"q":3}'
+#[[payloads.fuzz]]
+#map = { Word = { byte_count = 2 }}
+#prefix = '\'
+#
+#[[payloads]]
+#name = "duplicate_keys_replace_css"
+#payload = '{"q":2,"q":3}'
+#[[payloads.fuzz]]
+#map = { Word = { byte_count = 2 }}
+#prefix = '\'
+#remove_after = 1
+#
+#[[payloads]]
+#name = "nested_replace_two0"
+#payload = '{"w":{"q":2},"q":3}'
+#[[payloads.fuzz]]
+#remove_after = 1
+#[[payloads.fuzz]]
+#remove_after = 1
+#
+#[[payloads]]
+#name = "nested_insert_two0"
+#payload = '{"w":{"q":2},"q":3}'
+#[[payloads.fuzz]]
+#[[payloads.fuzz]]
+#
+#[[payloads]]
+#name = "nested_replace_two1"
+#payload = '{"q":2,"w":{"q":3}}'
+#[[payloads.fuzz]]
+#remove_after = 1
+#[[payloads.fuzz]]
+#remove_after = 1
+#
+#[[payloads]]
+#name = "nested_insert_two1"
+#payload = '{"q":2,"w":{"q":3}}'
+#[[payloads.fuzz]]
+#[[payloads.fuzz]]
+#
+#
+## Edge cases from firefox source ('js/src/jit-test/tests/basic/json-parse-object-edge-cases.js')
+##{"x1": 1},
+##{"x2": 2},
+##{"x3": 3},
+##{"x1": 1, "y": 0},
+##{"x2": 1, "y": 0},
+##{"x3": 1, "y": 0},
+##{"x1": 1, "x1": 2, "y": 0},
+##{"x1": 1, "x1": 2, "y": 0},
+##{"x1": 1, "x1": 2, "y": 0},
+##{"0": 1, "x1": 1},
+##{"0": 1, "0": 2, "x1": 1},
+##{"0": 1, "0": 2, "x1": 1},
+##{"2147483648": 1},
+##{"2147483648": 2},
+##{"2147483648": 0, "x": 0, "2147483648": 3},
+##{"4294967295": 4},
+##{"4294967295": 5},
+##{"-1": 6},
+##{"-1": 7},
+##{"__proto__": 1},
+##{"__proto__": 2}

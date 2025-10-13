@@ -1,5 +1,7 @@
 target/
 build/
+bin/
+obj/
 data/
 local/
 .cache/
@@ -8,6 +10,7 @@ venv/
 /programs/clients/cpp/build/cpp_client
 /programs/clients/cpp/build/CMakeCache.txt
 /programs/clients/go/main
+boost_1_82_0/
 
 *.o
 *.bak

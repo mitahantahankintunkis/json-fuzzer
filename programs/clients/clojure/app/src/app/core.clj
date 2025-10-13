@@ -4,8 +4,11 @@
             (clojure [string])
             (cheshire [core]))
   (:import (com.fasterxml.jackson.databind ObjectMapper)
+           ; (com.google.gson Gson)
            (java.net Socket)
            (java.io DataInputStream DataOutputStream)))
+
+; BufferedOutputStream BufferedInputStream might be more performant
 
 (defn int-to-byte
   [i]
@@ -49,19 +52,22 @@
       (= 0x0d i) "\\r"
       :else (char i))))
 
+; (def object-mapper jsonista.core/default-object-mapper)
+
 (defn parse_jsonista
   [payload obj_key]
   (try
     (-> payload
-        (jsonista.core/read-value jsonista.core/default-object-mapper)
+        (jsonista.core/read-value)
         (get obj_key KEY_NOT_FOUND)
         (.toString)
         (.getBytes))
     (catch Exception _ PARSE_ERROR)))
 
+(def object-mapper (ObjectMapper.))
 (defn parse_jackson
   [payload obj_key]
-  (try (-> (ObjectMapper.)
+  (try (-> object-mapper
            (.readTree payload)
            (.get obj_key)
            (.asText)
@@ -80,9 +86,17 @@
         (.getBytes))
     (catch Exception _ PARSE_ERROR)))
 
+; (def gson (Gson.))
+; ; (def maptype (TypeToken.))
+; (defn parse_gson
+;   [payload obj_key]
+;   (gson/fromJson payload))
+
 (defn connect []
   (let [socket (try
-                 (Socket. "127.0.0.1" 5000)
+                 (let [socket (Socket. "127.0.0.1" 5000)]
+                   (.setTcpNoDelay socket true)
+                   socket)
                  (catch Exception _ (Thread/sleep 100)))]
 
     (if (nil? socket)
@@ -114,7 +128,15 @@
   "JSON fuzzing client for Clojure/Java/Scala"
   [& args]
 
-  ; ;; Testing
+  ; (time
+  ;  (doseq [_ (range 0 1000000)]
+  ;    (parse_jsonista (.getBytes "{\"q\":1,\"q\":2}") "q")))
+  ;
+  ; (time
+  ;  (doseq [_ (range 0 1000000)]
+  ;    (parse_jsonista (.getBytes "{\"q\":1\"q\":2}") "q")))
+
+; ;; Testing
   ; (let [json (.getBytes "{\"qqq\":0,\"Aqqq\":1234}")]
   ;   (doseq [i (range 0 256)]
   ;     ; (aset-byte json 11 (int-to-byte i))
@@ -129,11 +151,20 @@
                                  (= parser_number 2) ["clojure_cheshire" parse_cheshire]
                                  :else (System/exit 1))
         socket (connect)
+        ; in (-> socket
+        ;        (.getInputStream)
+        ;        (BufferedInputStream.)
+        ;        (DataInputStream.)
+        ;        DataInputStream.)
+        ; out (-> socket
+        ;         (.getOutputStream)
+        ;         (BufferedOutputStream.)
+        ;         (DataOutputStream.))
         in (DataInputStream. (.getInputStream socket))
         out (DataOutputStream. (.getOutputStream socket))
-        header (make-array Byte/TYPE 8)
+        header (make-array Byte/TYPE 10)
         read_buffer (make-array Byte/TYPE (bit-shift-left 1 20))
-        write_buffer (make-array Byte/TYPE (bit-shift-left 1 20))]
+        write_buffer (make-array Byte/TYPE (bit-shift-left 1 22))]
 
     ;; Send name
     (.write out (-> parser_name
@@ -141,12 +172,12 @@
                     (java.util.Arrays/copyOf 64)))
 
     (loop []
-      (when (<= (.read in header 0 8) 0)
+      (when (< (.read in header 0 10) 10)
         (System/exit 0))
 
       (let [_buffer_size (bytes_to_u32 header 0)
             payload_size (bytes_to_u16 header 4)
-            batch_size (bytes_to_u16 header 6)]
+            batch_size (bytes_to_u32 header 6)]
 
         (let [l (read_all in read_buffer 0 (* payload_size batch_size))]
           (when (not= l (* payload_size batch_size))
@@ -154,29 +185,25 @@
             (flush)
             (System/exit 1)))
 
-        (let [len (loop [batch 0 written_count 0]
+        (let [buf (make-array Byte/TYPE payload_size)
+              len (loop [batch 0 written_count 0]
                     (if (< batch batch_size)
+                      (do
+                        (System/arraycopy read_buffer (* batch payload_size) buf 0 payload_size)
+
                         ;; Parse JSON in the batch
-                      (let [offset (* batch payload_size)
-                            parsed_bytes (-> read_buffer
-                                             (java.util.Arrays/copyOfRange offset (+ offset payload_size))
-                                             (parse_fn "q"))
-                            len (count parsed_bytes)]
+                        (let [parsed_bytes (parse_fn buf "q")
+                              len (count parsed_bytes)]
 
-                        ;; Testing
-                        ; (let [json (java.util.Arrays/copyOfRange read_buffer offset (+ offset payload_size))]
-                        ;   (print "Clojure: " (clojure.string/join (map byte_to_string json)) " -> ")
-                        ;   (println (clojure.string/join (map byte_to_string (parse_fn json "q")))))
+                          ;; Parsed length
+                          (aset-byte write_buffer (+ written_count 4) (int-to-byte (bit-and len 0xff)))
+                          (aset-byte write_buffer (+ written_count 5) (int-to-byte (bit-and (bit-shift-right len 8) 0xff)))
 
-                        ;; Parsed length
-                        (aset-byte write_buffer (+ written_count 4) (int-to-byte (bit-and len 0xff)))
-                        (aset-byte write_buffer (+ written_count 5) (int-to-byte (bit-and (bit-shift-right len 8) 0xff)))
+                          ;; Parsed bytes
+                          (doseq [[j parsed_byte] (map-indexed vector parsed_bytes)]
+                            (aset-byte write_buffer (+ written_count j 6) parsed_byte))
 
-                        ;; Parsed bytes
-                        (doseq [[j parsed_byte] (map-indexed vector parsed_bytes)]
-                          (aset-byte write_buffer (+ written_count j 6) parsed_byte))
-
-                        (recur (inc batch) (+ written_count len 2)))
+                          (recur (inc batch) (+ written_count len 2))))
                       written_count))]
 
           (aset-byte write_buffer 0 (int-to-byte (bit-and len 0xff)))

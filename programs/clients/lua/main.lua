@@ -1,7 +1,9 @@
 #!/bin/env lua
 
 local socket = require("socket")
-local cjson = require("cjson.safe") -- use safe to avoid hard crashes
+socket.unix = require("socket.unix")
+local cjson = require("cjson.safe")
+--local simdjson = require("resty.simdjson")
 -- local bit32 = require("bit32")
 local string = string
 local table = table
@@ -9,10 +11,24 @@ local table = table
 local KEY_NOT_FOUND = "KEY_NOT_FOUND"
 local PARSE_ERROR = "PARSE_ERROR"
 
--- Parse JSON and extract key
-local function parse_json(data, key)
-	local str = data:gsub("%z+$", "") -- strip trailing \0
-	local parsed, err = cjson.decode(str)
+-- local simdjson_parser = simdjson.new()
+--
+-- local function parse_simdjson(data, key)
+-- 	local parsed = simdjson_parser:decode(data)
+--
+-- 	if not parsed then
+-- 		return PARSE_ERROR
+-- 	end
+-- 	if parsed[key] ~= nil then
+-- 		return tostring(parsed[key])
+-- 	else
+-- 		return KEY_NOT_FOUND
+-- 	end
+-- end
+
+local function parse_cjson(data, key)
+	local str = data:gsub("%z+$", "")
+	local parsed, _ = cjson.decode(str)
 	if not parsed then
 		return PARSE_ERROR
 	end
@@ -29,19 +45,22 @@ local function main()
 		parser_number = tonumber(arg[1]) or 0
 	end
 
-	local name
-	if parser_number == 0 then
-		name = "lua_cjson"
-	else
+	local parsers = {
+		{ "lua_cjson", parse_cjson },
+		--{ "lua_simdjson", parse_simdjson },
+	}
+
+	if parser_number >= #parsers then
 		os.exit(1)
 	end
+
+	local name, parser_fn = unpack(parsers[1])
 
 	-- Connect to server
 	local s
 	repeat
-		s = socket.tcp()
-		s:setoption("tcp-nodelay", true)
-		local ok, err = s:connect("127.0.0.1", 5000)
+		s = socket.unix()
+		local ok, _ = s:connect("/tmp/fuzzer.sock")
 		if not ok then
 			socket.sleep(0.1)
 		end
@@ -51,31 +70,27 @@ local function main()
 	local name_buffer = name .. string.rep("\0", 64 - #name)
 	s:send(name_buffer)
 
-	local read_buffer = ""
-	local write_buffer = ""
-
 	while true do
 		-- Read header (8 bytes)
-		local header, err = s:receive(8)
+		local header, _ = s:receive(10)
 		if not header then
 			return
 		end
 
-		-- Unpack: <IHH (little-endian: u32, u16, u16)
-		local b1, b2, b3, b4, h1, h2, h3, h4 = header:byte(1, 8)
-		local buffer_size = b1 + b2 * 256 + b3 * 65536 + b4 * 16777216
+		-- Unpack: <IHH (little-endian: u32, u16, u32)
+		local h1, h2, h3, h4, h5, h6 = header:byte(5, 10)
 		local payload_size = h1 + h2 * 256
-		local batch_size = h3 + h4 * 256
+		local batch_size = h3 + h4 * 256 + h5 * 65536 + h6 * 16777216
 
 		local total_payload = batch_size * payload_size
 
 		-- Read JSON payloads
-		local payload, err2, partial = s:receive(total_payload)
+		local payload, _, _ = s:receive(total_payload)
 		if not payload then
 			return
 		end
 
-		local byte_offset = 5 -- Lua strings are 1-based; reserve first 4 bytes
+		local byte_offset = 5
 		local parts = {}
 		table.insert(parts, "\0\0\0\0") -- reserve 4 bytes
 
@@ -84,10 +99,7 @@ local function main()
 			local stop = start + payload_size - 1
 			local data = payload:sub(start, stop)
 
-			local message
-			if parser_number == 0 then
-				message = parse_json(data, "q")
-			end
+			local message = parser_fn(data, "q")
 
 			-- message length (u16 LE)
 			local len = #message

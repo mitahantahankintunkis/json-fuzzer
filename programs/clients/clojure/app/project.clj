@@ -6,7 +6,8 @@
   :dependencies [[org.clojure/clojure "1.10.0"]
                  [metosin/jsonista "0.3.13"]
                  [com.fasterxml.jackson.core/jackson-databind "2.20.0"]
-                 [cheshire "6.1.0"]]
+                 [cheshire "6.1.0"]
+                 [com.google.code.gson/gson "2.13.2"]]
   :main ^:skip-aot app.core
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all}})

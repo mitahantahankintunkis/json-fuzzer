@@ -64,10 +64,13 @@ class Query(msgspec.Struct):
     q: int
 
 
-def parse_msgspec(data):
+def parse_msgspec(data, key):
     try:
-        query = msgspec.json.decode(data, type=Query)
-        return str(query.q)
+        if key == 'q':
+            query = msgspec.json.decode(data, type=Query)
+            return str(query.q)
+        else:
+            return PARSE_ERROR
 
     except Exception:
         return PARSE_ERROR
@@ -91,27 +94,36 @@ def main():
     match parser_number:
         case 0:
             name = b'python_json'
+            parser_fn = parse_json
         case 1:
             name = b'python_simplejson'
+            parser_fn = parse_simplejson
         case 2:
             name = b'python_orjson'
+            parser_fn = parse_orjson
         case 3:
             name = b'python_ujson'
+            parser_fn = parse_ujson
         case 4:
             name = b'python_msgspec'
+            parser_fn = parse_msgspec
         case 5:
             name = b'python_rapidjson'
+            parser_fn = parse_rapidjson
         case _:
             sys.exit(1)
 
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+
     while True:
         try:
-            s = socket.create_connection(('127.0.0.1', 5000))
+            # s = socket.create_connection(('127.0.0.1', 5000))
+            s.connect('/tmp/fuzzer.sock')
             break
         except OSError:
             time.sleep(0.1)
 
-    s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    # s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
     name_buffer = name.ljust(64, b'\0')
     s.sendall(name_buffer)
@@ -120,20 +132,18 @@ def main():
     write_buffer = bytearray()
 
     while True:
-        # Read header (8 bytes)
-        header = s.recv(8)
-        if len(header) < 8:
+        header = s.recv(10)
+        if len(header) < 10:
             return
 
-        buffer_size, payload_size, batch_size = struct.unpack('<IHH', header)
-
+        buffer_size, payload_size, batch_size = struct.unpack('<IHI', header)
         total_payload = batch_size * payload_size
 
         # Resize buffers if needed
         if len(read_buffer) != total_payload:
             read_buffer = bytearray(total_payload)
-        if len(write_buffer) != buffer_size:
-            write_buffer = bytearray(buffer_size)
+        if len(write_buffer) != buffer_size << 2:
+            write_buffer = bytearray(buffer_size << 2)
 
         # Read JSON payloads
         view = memoryview(read_buffer)
@@ -144,7 +154,7 @@ def main():
                 return
             total_read += n
 
-        byte_offset = 4  # reserve first 4 bytes for length
+        byte_offset = 4
 
         for batch in range(batch_size):
             start = batch * payload_size
@@ -152,19 +162,7 @@ def main():
             data = read_buffer[start:end]
 
             # Parse JSON
-            match parser_number:
-                case 0:
-                    message = parse_json(data, 'q')
-                case 1:
-                    message = parse_simplejson(data, 'q')
-                case 2:
-                    message = parse_orjson(data, 'q')
-                case 3:
-                    message = parse_ujson(data, 'q')
-                case 4:
-                    message = parse_msgspec(data)
-                case 5:
-                    message = parse_rapidjson(data, 'q')
+            message = parser_fn(data, 'q')
 
             # Write message length (u16 LE) + message bytes
             size_bytes = struct.pack('<H', len(message))

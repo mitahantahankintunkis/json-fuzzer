@@ -7,7 +7,13 @@ function read_all($socket, int $n) {
 	$ret = "";
 
 	while (strlen($ret) < $n) {
-		$ret .= fread($socket, $n - strlen($ret));
+		$bytes = fread($socket, $n - strlen($ret));
+
+		if ($bytes === false || strlen($bytes) === 0) {
+			return $ret;
+		}
+
+		$ret .= $bytes;
 	}
 
 	return $ret;
@@ -41,7 +47,8 @@ switch ($parser_number) {
 }
 
 while (true) {
-	$socket = @stream_socket_client("tcp://127.0.0.1:5000", $errno, $errstr, -1);
+	/* $socket = @stream_socket_client("tcp://127.0.0.1:5000", $errno, $errstr, -1); */
+	$socket = @stream_socket_client("unix:///tmp/fuzzer.sock", $errno, $errstr, -1);
 
     if ($socket) {
         stream_set_blocking($socket, true);
@@ -58,10 +65,9 @@ $read_buffer  = "";
 $write_buffer = "";
 
 while (true) {
-    // Read 8-byte header
-    $header = read_all($socket, 8);
-    if ($header === false || strlen($header) < 8) {
-		echo "Incorrect header";
+    $header = read_all($socket, 10);
+
+    if ($header === false || strlen($header) < 10) {
         exit(0);
     }
 
@@ -70,18 +76,18 @@ while (true) {
     /* $batch_size   = unpack("v", substr($header, 6, 2))[1]; // little-endian u16 */
     $buffer_size  = unpack("V", $header, 0)[1];
     $payload_size = unpack("v", $header, 4)[1];
-    $batch_size   = unpack("v", $header, 6)[1];
+    $batch_size   = unpack("V", $header, 6)[1];
 
     $read_length = $payload_size * $batch_size;
     $read_buffer = read_all($socket, $read_length);
 
     if ($read_buffer === false || strlen($read_buffer) < $read_length) {
-		echo "Did not read enough";
+		echo "PHP Client: Could not read body\n";
         exit(0);
     }
 
-	if (strlen($write_buffer) < $buffer_size) {
-		$write_buffer = str_repeat("\0", $buffer_size);
+	if (strlen($write_buffer) < $buffer_size * 4) {
+		$write_buffer = str_repeat("\0", $buffer_size * 4);
 	}
 
     $byte_offset = 4;
@@ -90,10 +96,6 @@ while (true) {
         $data = substr($read_buffer, $batch * $payload_size, $payload_size);
 
 		$parsed = $parser_fn($data, "q");
-		/* match ($parser_number) { */
-		/*           0 => parse_std($data, "q"), */
-		/*           default => exit(1), */
-		/*       }; */
 
         $buffer_size = pack("v", strlen($parsed));
 		for ($i = 0; $i < 2; ++$i) {
@@ -101,9 +103,6 @@ while (true) {
 		}
         $byte_offset += 2;
 
-        /* $write_buffer = substr_replace($parsed, $buffer_size, $byte_offset, 2); */
-        /**/
-        /* $write_buffer = substr_replace($write_buffer, $parsed, $byte_offset, strlen($parsed)); */
 		for ($i = 0; $i < strlen($parsed); ++$i) {
 			$write_buffer[$byte_offset + $i] = $parsed[$i];
 		}
@@ -111,7 +110,6 @@ while (true) {
         $byte_offset += strlen($parsed);
     }
 
-    /* $write_buffer = substr_replace($write_buffer, $prefix, 0, 4); */
     $prefix = pack("V", $byte_offset - 4);
 
 	for ($i = 0; $i < 4; ++$i) {
@@ -119,5 +117,4 @@ while (true) {
 	}
 
     fwrite($socket, $write_buffer, $byte_offset);
-    /* fwrite($socket, substr($write_buffer, 0, $byte_offset)); */
 }

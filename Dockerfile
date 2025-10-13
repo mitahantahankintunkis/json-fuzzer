@@ -1,15 +1,20 @@
-# Rust
-FROM rust:latest AS rust
-
+# Rust - fuzzer
+FROM rust:latest AS fuzzer
 WORKDIR /app
-
 COPY programs/fuzzer ./fuzzer
-COPY programs/test-server ./test-server
-COPY programs/clients/rust ./rust
+RUN cargo install --path fuzzer
 
-RUN cargo install --path fuzzer && \
-	cargo install --path test-server && \
-	cargo install --path rust
+# Rust - test server
+FROM rust:latest AS test-server
+WORKDIR /app
+COPY programs/test-server ./test-server
+RUN cargo install --path test-server
+
+# Rust - client
+FROM rust:latest AS rust-client
+WORKDIR /app
+COPY programs/clients/rust ./rust
+RUN cargo install --path rust
 
 # https://stackoverflow.com/questions/58473606/cache-rust-dependencies-with-docker-build
 #	--mount=type=cache,target=/usr/local/cargo/registry \
@@ -62,13 +67,59 @@ RUN --mount=target=/var/lib/apt,type=cache,sharing=locked \
     --mount=target=/var/cache/apt,type=cache,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
 	apt-get update && \
-	apt-get install -y cmake g++ libjansson-dev libyajl-dev
+	apt-get install -y cmake g++ libjansson-dev libyajl-dev git libjson-c-dev libpoco-dev
 
-# C++
+
+# RUN --mount=target=/root/.cache/fuzzer,type=cache,sharing=locked \
+# 	git clone --depth 1 https://github.com/boostorg/json.git && mv json boost-json
+
 WORKDIR /app
+ADD https://archives.boost.io/release/1.82.0/source/boost_1_82_0.tar.gz .
+RUN tar -xf boost_1_82_0.tar.gz
+
 COPY ./programs/clients/cpp ./cpp
+# RUN --mount=target=~/root/.cache/fuzzer,type=cache,sharing=locked \
+# 	wget https://archives.boost.io/release/1.82.0/source/boost_1_82_0.tar.gz && \
+
 WORKDIR /app/cpp/build
 RUN cmake .. && make && cp cpp_client /usr/local/bin/cpp-client
+
+
+# C#
+FROM mcr.microsoft.com/dotnet/sdk:9.0@sha256:3fcf6f1e809c0553f9feb222369f58749af314af6f063f389cbd2f913b4ad556 AS dotnet
+WORKDIR /app
+
+# Copy everything
+COPY ./programs/clients/dotnet/ ./
+RUN dotnet restore
+RUN dotnet publish -o out
+
+## Build runtime image
+#FROM mcr.microsoft.com/dotnet/aspnet:9.0@sha256:b4bea3a52a0a77317fa93c5bbdb076623f81e3e2f201078d89914da71318b5d8
+#WORKDIR /app
+#COPY --from=dotnet /app/out .
+#ENTRYPOINT ["dotnet", "DotNet.Docker.dll"]
+
+
+# Python
+# FROM python:3.14-trixie AS python-client
+FROM ubuntu:latest AS python-client
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app/
+
+RUN --mount=target=/var/lib/apt,type=cache,sharing=locked \
+    --mount=target=/var/cache/apt,type=cache,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+	apt-get update && \
+	apt-get install -y python3 python3-pip python3.12-venv
+
+RUN python3 -m venv /opt/venv
+# Enable venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY ./programs/clients/python/requirements.txt ./requirements.txt
+RUN pip3 install -Ur requirements.txt
 
 
 # Final
@@ -82,7 +133,12 @@ RUN --mount=target=/var/lib/apt,type=cache,sharing=locked \
     --mount=target=/var/cache/apt,type=cache,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
 	apt-get update && \
-	apt-get install -y lua5.4 luarocks openjdk-21-jre libyajl-dev php
+	apt-get install -y lua5.4 luarocks openjdk-21-jre php ruby python3 python3-pip python3.12-venv \
+			libyajl-dev dotnet-runtime-8.0 libpoco-dev
+
+	# python3 -m venv venv
+	# source ./venv/bin/activate
+	# cd ..
 
 # RUN apt-get install -y gcc g++ make curl wget python3 make cmake git apt-utils \
 # 	autoconf automake build-essential libcurl4-openssl-dev libgeoip-dev liblmdb-dev libpcre2-dev \
@@ -91,19 +147,38 @@ RUN --mount=target=/var/lib/apt,type=cache,sharing=locked \
 RUN luarocks install luasocket && \
 	luarocks install lua-cjson
 
-COPY --from=rust /usr/local/cargo/bin/json-fuzzer /usr/local/bin/
-COPY --from=rust /usr/local/cargo/bin/test-server /usr/local/bin/
-COPY --from=rust /usr/local/cargo/bin/rust-client /usr/local/bin/
+COPY ./programs/clients/python/main.py ./python/main.py
+COPY --from=python-client /opt/venv /opt/venv
+
+# Enable venv
+ENV VIRTUAL_ENV=/opt/venv
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+#COPY ./programs/clients/python/requirements.txt ./python/requirements.txt
+
+#RUN pip3 install -r ./python/requirements.txt
+
+# WORKDIR /app/python/
+# RUN python3 -m venv venv && source ./venv/bin/activate && \
+# 	pip3 install -r requirements.txt
+#
+# WORKDIR /app
+
+COPY --from=fuzzer /usr/local/cargo/bin/json-fuzzer /usr/local/bin/
+COPY --from=test-server /usr/local/cargo/bin/test-server /usr/local/bin/
+COPY --from=rust-client /usr/local/cargo/bin/rust-client /usr/local/bin/
 COPY --from=cpp /usr/local/bin/cpp-client /usr/local/bin/
 COPY --from=go /usr/local/bin/go-client /usr/local/bin/
 COPY --from=jvm /usr/src/app/clojure-client.jar .
+COPY --from=dotnet /app/out ./dotnet_client
 
-COPY ./programs/clients/python/ ./python
 COPY ./programs/clients/lua/main.lua .
 COPY ./programs/clients/php/main.php .
+COPY ./programs/clients/ruby/main.rb .
 COPY ./programs/test.sh .
 COPY ./programs/run.sh .
 COPY ./programs/payloads.toml .
+COPY ./programs/payloads_dos.toml .
 COPY ./scripts/analyze.sh .
 
 # Rust

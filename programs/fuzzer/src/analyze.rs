@@ -78,38 +78,20 @@ impl Vulnerability {
             hash: vuln_hash(name0, name1, out0, out1),
         }
     }
-
-    // fn calc_hash(&mut self) {
-    //     let mut hasher = DefaultHasher::new();
-    //     self.parser_0_name.hash(&mut hasher);
-    //     self.parser_1_name.hash(&mut hasher);
-    //     self.parser_0_output.hash(&mut hasher);
-    //     self.parser_1_output.hash(&mut hasher);
-    //     self.hash = hasher.finish();
-    // }
 }
 
 impl Hash for Vulnerability {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.hash.hash(state);
-        // self.parser_0_name.hash(state);
-        // self.parser_1_name.hash(state);
-        // self.parser_0_output.hash(state);
-        // self.parser_1_output.hash(state);
-
-        // let re = Regex::new(r"\d+").unwrap();
-        // re.replace_all(&self.payload, "").hash(state);
     }
 }
 
 impl PartialEq for Vulnerability {
     fn eq(&self, other: &Self) -> bool {
-        // lt re = Regex::new(r"\d+").unwrap();
-        self.parser_0_name == other.parser_0_name && self.parser_1_name == other.parser_1_name
-        // && re.replace_all(&self.payload, "") == re.replace_all(&other.payload, "")
-        && self.parser_0_output == other.parser_0_output
-        && self.parser_1_output == other.parser_1_output
-        // && self.payload == other.payload
+        self.parser_0_name == other.parser_0_name
+            && self.parser_1_name == other.parser_1_name
+            && self.parser_0_output == other.parser_0_output
+            && self.parser_1_output == other.parser_1_output
     }
 }
 
@@ -119,21 +101,15 @@ fn analyze_results(
     payload_config: PayloadConfig,
     results: &Vec<FuzzingResult>,
 ) -> Vec<(u32, Vulnerability)> {
-    // ) -> HashMap<u32, Vulnerability> {
     if results.len() == 0 {
         return Vec::new();
         // return HashMap::new();
     }
 
-    // for result in &mut *results {
-    //     result.decoder.next_message().unwrap();
-    // }
-
     let mut vulnerabilities: Vec<(u32, Vulnerability)> = Vec::new();
     // let mut vulnerabilities: HashMap<u32, Vulnerability> = HashMap::new();
 
     let mut payload: Payload = payload_config.clone().into();
-    // println!("{}", payload_config.name);
 
     if results.len() == 0 {
         panic!("No results for {}", payload_config.name);
@@ -141,10 +117,19 @@ fn analyze_results(
 
     let mut payload_str = String::with_capacity(64);
     let mut parser_outputs: Vec<(&str, &str)> = Vec::with_capacity(results.len());
+
+    // Storing decoder states here gets around some issues with the borrow checker
     let mut decoder_states: Vec<DecoderState> = Vec::new();
 
     for _ in 0..results.len() {
         decoder_states.push(DecoderState::default());
+    }
+
+    // Pop parser names
+    for (i, result) in results.iter().enumerate() {
+        let _ = result
+            .decoder
+            .next_message_with_state(&mut decoder_states[i]);
     }
 
     loop {
@@ -176,12 +161,6 @@ fn analyze_results(
                 }
             }
         }
-
-        // for byte in payload.into_iter() {
-        //     payload_str.push_str(&byte_to_string(byte));
-        // }
-        // println!("{}", payload_str);
-        // payload_str.clear();
 
         if parser_outputs.len() == 0 {
             if payload.advance().is_err() {
@@ -307,18 +286,15 @@ pub fn analyze(_args: &crate::Args) {
                     continue;
                 }
 
-                // if file_name.contains("surrogate") {
-                //     continue;
-                // }
-
                 let bytes = std::fs::read(f.path()).expect("Could not read file");
 
                 // TODO - remove
-                if bytes.len() >= 10_000_000 {
-                    println!("Skipping {} due to size", file_name);
-                    continue;
-                }
+                // if bytes.len() >= 10_000_000 {
+                //     // println!("Skipping {} due to size", file_name);
+                //     continue;
+                // }
 
+                println!("{} {}", file_parser_name, file_config_name);
                 let result = FuzzingResult {
                     parser_name: file_parser_name.to_string(),
                     decoder: Decoder::new(Box::new(bytes)),

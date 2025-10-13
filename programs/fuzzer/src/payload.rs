@@ -1,23 +1,37 @@
+use regex::Regex;
 use serde::Deserialize;
-use std::{collections::HashMap, fs};
+#[allow(unused)]
+use std::{
+    cmp::{max, min, Ordering},
+    fs,
+    ops::Range,
+};
 
 #[derive(Deserialize, Debug)]
 pub struct Config {
     pub payloads: Vec<PayloadConfig>,
 }
 
+// Serde functions for defaults
+fn q() -> String {
+    "q".to_string()
+}
+
 #[derive(Deserialize, Clone, Debug)]
 pub struct PayloadConfig {
     pub name: String,
     pub payload: String,
+    #[serde(default)]
     pub datatype: Datatype,
-    pub key: Option<String>,
+    #[serde(default = "q")]
+    pub key: String,
     #[serde(default)]
     pub fuzz: Vec<FuzzConfig>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, Default)]
 pub enum Datatype {
+    #[default]
     Int,
     Float,
     String,
@@ -27,300 +41,327 @@ pub enum Datatype {
     Bool,
 }
 
-// Serde functions for defaults
-fn one() -> usize {
-    1
+// String to UTF-8 bytes. Decodes '\xAA' notation
+fn decode_str(s: &str) -> Vec<u8> {
+    let re = Regex::new(r"\\x[0-9a-fA-F]{2}").unwrap();
+    let mut prev = 0;
+    let mut bytes = Vec::new();
+    for mat in re.find_iter(&s) {
+        bytes.extend_from_slice(s[prev..mat.start()].as_bytes());
+        let byte = u8::from_str_radix(&s[(mat.start() + 2)..mat.end()], 16).unwrap();
+
+        bytes.push(byte);
+        prev = mat.end();
+    }
+
+    bytes.extend_from_slice(s[prev..].as_bytes());
+
+    bytes
 }
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct FuzzConfig {
-    // replace_characters: Option<String>,
-    #[serde(default = "one")]
-    pub bytes: usize,
+    pub range: Option<Range<u32>>,
+    pub indices: Option<Range<usize>>,
     #[serde(default)]
     pub prefix: String,
     #[serde(default)]
-    pub fuzz_mode: FuzzModeConfig,
-    pub fuzz_range: Option<FuzzRangeConfig>,
-    // pub min: Option<u32>,
-    // pub max: Option<u32>,
+    pub suffix: String,
+    pub map: Option<FuzzMapConfig>,
+    #[serde(default)]
+    pub remove_after: usize,
+    pub id: Option<String>,
+    pub inherit_value_from: Option<String>,
+    pub right_of: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Fuzz {
-    pub config: FuzzConfig,
-    pub mode: FuzzMode,
-    // i: usize,
     pub value: u32,
-    pub range: FuzzRange,
+    pub index: usize,
+    pub map: FuzzMap,
+    pub range: Range<u32>,
+    pub indices: Range<usize>,
     pub prefix: Vec<u8>,
-    // pub characterset: Vec<u8>,
-    // pub min: u32,
-    // pub max: u32,
+    pub suffix: Vec<u8>,
+    pub remove_after: usize,
+    pub inherit_value_from: Option<usize>,
+    pub right_of: Option<usize>,
+    pub left_of: Option<usize>,
+    mapped_length: usize,
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub enum FuzzRangeConfig {
-    Number { bytes: usize },
-    MinMax { min: u32, max: u32 },
-    Characters { chars: String, length: usize },
-    Bytes(Vec<u8>),
+pub enum FuzzMapConfig {
+    Word {
+        byte_count: usize,
+    },
+    Characters {
+        chars: String,
+        byte_count: usize,
+    },
+    ReplaceCharacters {
+        chars: String,
+        replace_with: Box<FuzzMapConfig>,
+    },
 }
 
 #[derive(Debug, Clone)]
-pub enum FuzzRange {
-    MinMax { min: u32, max: u32 },
-    Characters { chars: Vec<char>, length: usize },
-    Bytes(Vec<u8>),
+pub enum FuzzMap {
+    Word { byte_count: usize },
+    Bytes { bytes: Vec<u8>, byte_count: usize },
 }
 
-impl From<&FuzzRangeConfig> for FuzzRange {
-    fn from(config: &FuzzRangeConfig) -> Self {
-        match config {
-            FuzzRangeConfig::Number { bytes } => FuzzRange::MinMax {
-                min: 0,
-                max: ((u64::MAX & (1u64 << (bytes * 8))) - 1) as u32,
-            },
-            FuzzRangeConfig::MinMax { min, max } => FuzzRange::MinMax {
-                min: *min,
-                max: *max,
-            },
-            FuzzRangeConfig::Characters { chars, length } => FuzzRange::Characters {
-                chars: chars.chars().collect(),
-                length: *length,
-            },
-            FuzzRangeConfig::Bytes(bytes) => FuzzRange::Bytes(bytes.clone()),
-        }
-    }
-}
-
-impl FuzzRange {
+impl FuzzMap {
     #[inline]
-    pub fn map(&self, i: u32, byte_offset: usize) -> Option<u8> {
+    pub fn map(&self, i: u32, byte_offset: usize) -> u8 {
         match self {
-            FuzzRange::MinMax { min, max } => {
-                if i + min > *max {
-                    None
-                } else {
-                    let bytes = i + min;
-                    Some((bytes >> (byte_offset * 8) & 0xff) as u8)
-                }
+            FuzzMap::Word { byte_count } => {
+                (i >> ((byte_count - byte_offset - 1) * 8) & 0xff) as u8
             }
-            FuzzRange::Characters { chars, length } => {
-                if i >= chars.len().pow(*length as u32) as u32 {
-                    None
-                } else {
-                    let len = chars.len();
-
-                    let char =
-                        chars[((i as usize) / (len.pow(byte_offset as u32)) as usize) % len] as u32;
-
-                    // Some((char as u32 >> (byte_offset * 8) & 0xff) as u8)
-                    Some((char & 0xff) as u8)
-                }
-            }
-            FuzzRange::Bytes(bytes) => {
-                if i >= bytes.len() as u32 {
-                    None
-                } else {
-                    Some((bytes[i as usize] >> (byte_offset * 8) & 0xff) as u8)
-                }
+            FuzzMap::Bytes { bytes, byte_count } => {
+                let len = bytes.len();
+                bytes[((i as usize) / (len.pow((byte_count - byte_offset - 1) as u32)) as usize)
+                    % len]
             }
         }
     }
-}
-
-#[derive(Deserialize, Debug, Default, Clone)]
-pub enum FuzzModeConfig {
-    #[default]
-    InsertAllPossible,
-    ReplaceAllPossible,
-    ReplaceCharacters(String),
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum FuzzMode {
-    Insert(usize),
-    Replace(usize),
-    ReplaceLocked(Vec<usize>),
-    // LinkedReplace(usize),
 }
 
 #[derive(Debug)]
 pub struct Payload {
+    pub byte_count: usize,
     pub bytes: Vec<u8>,
-    pub original_bytes: Vec<u8>,
     pub config: PayloadConfig,
     pub fuzz: Vec<Fuzz>,
-    pub fuzz_insert_i: Vec<usize>,
+    sorted_fuzz_lookup: Vec<usize>,
+    inverse_sorted_fuzz_lookup: Vec<usize>,
     finished: bool,
 }
 
 impl Payload {
-    // pub fn fuzzed_length(&self) -> usize {
-    //     let mut length = self.bytes.len();
-    //
-    //     for fuzz in &self.fuzz {
-    //         if let FuzzMode::Insert(_) = fuzz.mode {
-    //             length += fuzz.config.bytes;
-    //         }
-    //     }
-    //
-    //     length
-    // }
+    // Goes through all fuzz byte placements until it finds a valid one
+    pub fn init(&mut self) -> Result<(), ()> {
+        if self.fuzz.len() == 0 {
+            return Ok(());
+        }
+
+        for fuzz in &mut self.fuzz {
+            fuzz.index = fuzz.indices.start;
+        }
+
+        self.sorted_fuzz_lookup = (0..self.fuzz.len()).collect::<Vec<usize>>();
+        self.inverse_sorted_fuzz_lookup = (0..self.fuzz.len()).collect::<Vec<usize>>();
+
+        fn rec(payload: &mut Payload, fuzz_i: usize) -> (bool, usize) {
+            payload.fuzz[fuzz_i].index = payload.fuzz[fuzz_i].indices.start;
+            payload.sort();
+
+            let mut total_permutations = 1;
+
+            while payload.fuzz[fuzz_i].index <= payload.fuzz[fuzz_i].indices.end {
+                if fuzz_i > 0 {
+                    let (res, perm) = rec(payload, fuzz_i - 1);
+                    if res {
+                        return (true, total_permutations);
+                    }
+                    total_permutations += perm;
+                }
+
+                if total_permutations > 100000 {
+                    panic!("Possible infinite loop in init");
+                }
+
+                if payload.fully_valid() {
+                    // return true;
+                    return (true, total_permutations);
+                }
+
+                let _ = payload.shift_fuzz(fuzz_i, true);
+                payload.sort();
+
+                if payload.fuzz[fuzz_i].index == payload.fuzz[fuzz_i].indices.end {
+                    break;
+                }
+            }
+
+            (false, total_permutations)
+        }
+
+        let l = self.fuzz.len() - 1;
+
+        if rec(self, l).0 {
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
+
+    #[inline]
+    pub fn sort(&mut self) {
+        self.sorted_fuzz_lookup
+            .sort_by_key(|i| (self.byte_count as isize) - (self.fuzz[*i].index as isize));
+
+        for (sorted_i, fuzz_i) in self.sorted_fuzz_lookup.iter().enumerate() {
+            self.inverse_sorted_fuzz_lookup[*fuzz_i] = sorted_i;
+        }
+    }
+
+    pub fn fully_valid(&self) -> bool {
+        for i in 0..self.fuzz.len() {
+            if !self.valid(i) {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    #[inline]
+    pub fn valid(&self, fuzz_i: usize) -> bool {
+        let fuzz = &self.fuzz[fuzz_i];
+
+        for fuzz_j in 0..self.fuzz.len() {
+            if fuzz_i == fuzz_j {
+                continue;
+            }
+
+            let fuzz2 = &self.fuzz[fuzz_j];
+
+            let sorted_i0 = self.inverse_sorted_fuzz_lookup[fuzz_i];
+            let sorted_i1 = self.inverse_sorted_fuzz_lookup[fuzz_j];
+
+            if sorted_i0 > sorted_i1 && fuzz.remove_after == 0 && fuzz.index == fuzz2.index {
+                continue;
+            }
+
+            if sorted_i0 < sorted_i1 && fuzz2.remove_after == 0 && fuzz.index == fuzz2.index {
+                continue;
+            }
+
+            // Before
+            if fuzz2.remove_after > 0
+                && fuzz2.index <= fuzz.index
+                && fuzz2.index + fuzz2.remove_after > fuzz.index
+            {
+                return false;
+            }
+
+            // After
+            if fuzz.remove_after > 0
+                && fuzz.index <= fuzz2.index
+                && fuzz.index + fuzz.remove_after > fuzz2.index
+            {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    #[inline]
+    pub fn shift_fuzz(&mut self, fuzz_i: usize, once: bool) -> Result<(), ()> {
+        let mut sorted_i = self.inverse_sorted_fuzz_lookup[fuzz_i];
+
+        while self.fuzz[fuzz_i].index <= self.fuzz[fuzz_i].indices.end {
+            if sorted_i > 0 {
+                let next_i = self.sorted_fuzz_lookup[sorted_i - 1];
+
+                if self.fuzz[next_i].index == self.fuzz[fuzz_i].index {
+                    // if let Some(right_i) = self.fuzz[next_i].right_of {
+                    //     if right_i == fuzz_i {
+                    //         return Err(());
+                    //     }
+                    // }
+
+                    self.sorted_fuzz_lookup.swap(sorted_i, sorted_i - 1);
+                    self.inverse_sorted_fuzz_lookup.swap(fuzz_i, next_i);
+
+                    if self.valid(fuzz_i) {
+                        return Ok(());
+                    }
+
+                    sorted_i -= 1;
+                }
+            }
+
+            if self.fuzz[fuzz_i].index == self.fuzz[fuzz_i].indices.end {
+                break;
+            }
+
+            self.fuzz[fuzz_i].index += 1;
+            // self.sort();
+
+            if self.valid(fuzz_i) {
+                return Ok(());
+            }
+
+            if once {
+                break;
+            }
+        }
+
+        Err(())
+    }
 
     pub fn advance(&mut self) -> Result<(), ()> {
         if self.finished {
             return Err(());
         }
 
-        // Increase fuzz bytes
-        for fuzz in self.fuzz.iter_mut() {
-            if let Some(_) = fuzz.range.map(fuzz.value + 1, 0) {
-                fuzz.value += 1;
-            } else {
-                fuzz.value = 0;
+        // Increase fuzz values
+        for fuzz in &mut self.fuzz {
+            if fuzz.inherit_value_from.is_some() {
+                continue;
             }
 
-            match &fuzz.mode {
-                FuzzMode::Replace(i) => {
-                    // for (j, byte) in fuzz.prefix.iter().enumerate() {
-                    //     self.bytes[i + j] = *byte;
-                    // }
+            fuzz.value += 1;
 
-                    for byte_offset in 0..fuzz.config.bytes {
-                        let byte = fuzz.range.map(fuzz.value, byte_offset).unwrap();
-                        // let value = (mapped >> (byte_offset * 8) & 0xff) as u8;
-                        // println!("replace {} {}", i, byte_to_string(value));
-                        self.bytes[i + (fuzz.config.bytes - byte_offset - 1) + fuzz.prefix.len()] =
-                            byte;
-                    }
-                }
-                FuzzMode::ReplaceLocked(indices) => {
-                    for i in indices {
-                        // for (j, byte) in fuzz.prefix.iter().enumerate() {
-                        //     self.bytes[i + j] = *byte;
-                        // }
-
-                        for byte_offset in 0..fuzz.config.bytes {
-                            let byte = fuzz.range.map(fuzz.value, byte_offset).unwrap();
-                            // let value = (mapped >> (byte_offset * 8) & 0xff) as u8;
-                            // println!("locked  {} {}", i, byte_to_string(value));
-                            let byte_i =
-                                i + (fuzz.config.bytes - byte_offset - 1) + fuzz.prefix.len();
-                            self.bytes[byte_i] = byte;
-
-                            // TODO - hack
-                            self.original_bytes[byte_i] = byte;
-                        }
-                    }
-                }
-                // FuzzMode::Insert(i) => {
-                //     println!("insert  {} {}", i, byte_to_string(fuzz.value as u8));
-                // }
-                _ => {}
-            }
-
-            // if let FuzzMode::ReplaceLocked(indices) = &fuzz.mode {}
-
-            if fuzz.value != 0 {
-                // println!("{} {:?}", fuzz.value, fuzz.range.map(fuzz.value + 1, 0));
+            if fuzz.value < fuzz.range.end {
                 return Ok(());
             }
+
+            fuzz.value = fuzz.range.start;
         }
 
         // Overflow - each fuzz byte is at their minimum value
-        // Move fuzz bytes to right
-        // FuzzMode::Insert
 
-        let mut offset = 0;
-
+        // All finished
         for fuzz_i in 0..self.fuzz.len() {
-            match self.fuzz[fuzz_i].mode {
-                FuzzMode::Insert(mut fuzz_index) => {
-                    if fuzz_index < self.bytes.len() {
-                        fuzz_index += 1;
-                        self.fuzz[fuzz_i].mode = FuzzMode::Insert(fuzz_index);
+            let fuzz = &self.fuzz[fuzz_i];
 
-                        for k in 0..fuzz_i {
-                            if let FuzzMode::Insert(_) = self.fuzz[k].mode {
-                                self.fuzz[k].mode = FuzzMode::Insert(fuzz_index);
-                            }
-                        }
-
-                        return Ok(());
-                    }
-                }
-                FuzzMode::Replace(fuzz_index0) => {
-                    offset += self.fuzz[fuzz_i].config.bytes;
-                    offset += self.fuzz[fuzz_i].prefix.len();
-
-                    let new_fuzz_index0 = fuzz_index0 + 1;
-
-                    if new_fuzz_index0 <= self.bytes.len() - offset {
-                        self.fuzz[fuzz_i].mode = FuzzMode::Replace(new_fuzz_index0);
-
-                        // for i in 0..self.bytes.len() {
-                        //     self.bytes[i] = self.original_bytes[i];
-                        // }
-
-                        for (j, byte) in self.fuzz[fuzz_i].prefix.iter().enumerate() {
-                            self.bytes[new_fuzz_index0 + j] = *byte;
-                        }
-
-                        self.bytes[fuzz_index0] = self.original_bytes[fuzz_index0];
-
-                        for byte_offset in 0..self.fuzz[fuzz_i].config.bytes {
-                            let byte = self.fuzz[fuzz_i]
-                                .range
-                                .map(self.fuzz[fuzz_i].value, byte_offset)
-                                .unwrap();
-
-                            // let value = (mapped >> (byte_offset * 8) & 0xff) as u8;
-                            // println!("  new {} {}", fuzz_index0 + 1, byte_to_string(value));
-                            self.bytes[new_fuzz_index0
-                                + (self.fuzz[fuzz_i].config.bytes - byte_offset - 1)
-                                + self.fuzz[fuzz_i].prefix.len()] = byte;
-                        }
-
-                        for fuzz_j in 0..fuzz_i {
-                            if let FuzzMode::Replace(fuzz_index1) = self.fuzz[fuzz_j].mode {
-                                let new_fuzz_index1 = new_fuzz_index0 + (fuzz_i - fuzz_j);
-                                self.fuzz[fuzz_j].mode = FuzzMode::Replace(new_fuzz_index1);
-
-                                self.bytes[fuzz_index1] = self.original_bytes[fuzz_index1];
-
-                                for (j, byte) in self.fuzz[fuzz_j].prefix.iter().enumerate() {
-                                    self.bytes[new_fuzz_index1 + j] = *byte;
-                                }
-
-                                for byte_offset in 0..self.fuzz[fuzz_j].config.bytes {
-                                    let byte = self.fuzz[fuzz_j]
-                                        .range
-                                        .map(self.fuzz[fuzz_j].value, byte_offset)
-                                        .unwrap();
-
-                                    // let byte = (mapped >> (byte_offset * 8) & 0xff) as u8;
-                                    self.bytes[new_fuzz_index1
-                                        + (self.fuzz[fuzz_j].config.bytes - byte_offset - 1)
-                                        + self.fuzz[fuzz_i].prefix.len()] = byte;
-                                }
-                            }
-                        }
-
-                        // Restart inserts
-                        for k in 0..self.fuzz.len() {
-                            if let FuzzMode::Insert(_) = self.fuzz[k].mode {
-                                self.fuzz[k].mode = FuzzMode::Insert(0);
-                            }
-                        }
-
-                        return Ok(());
-                    }
-                }
-                // _ => return Err(()),
-                _ => {}
+            if fuzz.index != fuzz.indices.end {
+                break;
             }
+
+            if fuzz_i == self.fuzz.len() - 1 {
+                self.finished = true;
+                return Err(());
+            }
+        }
+
+        // Move fuzz values to right
+        for fuzz_i in 0..self.fuzz.len() {
+            if self.shift_fuzz(fuzz_i, false).is_ok() {
+                for fuzz_j in (0..fuzz_i).rev() {
+                    self.fuzz[fuzz_j].index = if let Some(right_i) = self.fuzz[fuzz_j].right_of {
+                        max(self.fuzz[right_i].index, self.fuzz[fuzz_j].indices.start)
+                    } else {
+                        self.fuzz[fuzz_j].indices.start
+                    };
+
+                    if !self.valid(fuzz_j) && self.shift_fuzz(fuzz_j, false).is_err() {
+                        self.finished = true;
+                        return Err(());
+                    }
+                }
+
+                self.sort();
+                return Ok(());
+            }
+
+            self.fuzz[fuzz_i].index = self.fuzz[fuzz_i].indices.end;
+            self.sort();
         }
 
         self.finished = true;
@@ -330,235 +371,265 @@ impl Payload {
 
 impl From<PayloadConfig> for Payload {
     fn from(config: PayloadConfig) -> Self {
-        // let mut fuzzed_payload: Vec<u8> = config.payload.bytes().collect();
-        let mut fuzzed_payload: Vec<u8> = config.payload.as_bytes().to_vec();
-        let original_payload: Vec<u8> = fuzzed_payload.clone();
-        // let mut fuzzed_payload: Vec<u8> = Vec::with_capacity(config.payload.len());
-        // let mut original_payload: Vec<u8> = Vec::with_capacity(config.payload.len());
-        let mut fuzz_lookup: HashMap<char, usize> = HashMap::new();
+        let fuzzed_payload: Vec<u8> = decode_str(&config.payload);
+        let mut fuzz_configs: Vec<FuzzConfig> = Vec::new();
 
-        // Add non locked fuzz bytes
-        // let mut replace_index = 0;
-        // let mut num_of_replaces = 0;
-
-        let mut offset = 0;
-        let mut inserts: Vec<Fuzz> = Vec::new();
-        let mut replaces: Vec<Fuzz> = Vec::new();
-
-        for config in &config.fuzz {
-            match config.fuzz_mode {
-                FuzzModeConfig::InsertAllPossible => {
-                    inserts.push(config.clone().into());
-                }
-                FuzzModeConfig::ReplaceAllPossible => {
-                    let mut fuzz: Fuzz = config.clone().into();
-                    fuzz.mode = FuzzMode::Replace(offset);
-
-                    for byte in &fuzz.prefix {
-                        fuzzed_payload[offset] = *byte;
-                        offset += 1;
+        // Convert FuzzMapConfig::ReplaceCharacters
+        for c in &config.fuzz {
+            match &c.map {
+                Some(FuzzMapConfig::ReplaceCharacters {
+                    chars,
+                    replace_with,
+                }) => {
+                    match **replace_with {
+                        FuzzMapConfig::ReplaceCharacters {
+                            chars: _,
+                            replace_with: _,
+                        } => panic!("Can not replace with 'ReplaceCharacters'"),
+                        _ => {}
                     }
 
-                    for byte_offset in 0..config.bytes {
-                        let byte = fuzz.range.map(0, byte_offset).unwrap_or(0u8);
-                        // let byte = (value >> (byte_offset * 8) & 0xff) as u8;
-                        fuzzed_payload[offset] = byte;
-                        offset += 1;
-                    }
+                    for c0 in chars.chars() {
+                        let mut parent_id = String::new();
 
-                    replaces.push(fuzz);
-                    // replace_index += 1;
+                        for (i, c1) in config.payload.chars().enumerate() {
+                            if c0 == c1 {
+                                let mut new_config = c.clone();
+                                new_config.map = Some((**replace_with).clone());
+                                new_config.indices = Some(i..i);
+
+                                if parent_id.is_empty() {
+                                    parent_id = format!("_{}_id", &chars);
+                                    new_config.id = Some(parent_id.clone());
+                                } else {
+                                    new_config.inherit_value_from = Some(parent_id.clone());
+                                }
+
+                                fuzz_configs.push(new_config);
+                            }
+                        }
+                    }
                 }
-                _ => {}
-            }
+                _ => fuzz_configs.push(c.clone()),
+            };
         }
 
-        replaces.reverse();
-
-        let mut character_replaces: Vec<Fuzz> = Vec::new();
-
-        // Add replaced characters
-        for (i, char) in config.payload.chars().enumerate() {
-            let fuzz_config = config.fuzz.iter().find(|&f| {
-                match &f.fuzz_mode {
-                    FuzzModeConfig::ReplaceCharacters(replace) => replace.contains(char),
-                    _ => false,
+        // Sort configs. This determines the update order of the fuzzed values
+        fuzz_configs.sort_by(|a, b| {
+            if let Some(id0) = &a.right_of {
+                if let Some(id1) = &b.id {
+                    if id0 == id1 {
+                        return Ordering::Less;
+                    }
                 }
-                // f.replace_characters
-                //     .as_ref()
-                //     .is_some_and(|r| r.contains(char))
+            }
+
+            if let Some(id0) = &b.right_of {
+                if let Some(id1) = &a.id {
+                    if id0 == id1 {
+                        return Ordering::Greater;
+                    }
+                }
+            }
+
+            if let Some(id0) = &a.inherit_value_from {
+                if let Some(id1) = &b.id {
+                    if id0 == id1 {
+                        return Ordering::Greater;
+                    }
+                }
+            }
+
+            if let Some(in0) = &a.indices {
+                if let Some(in1) = &b.indices {
+                    return in1.start.cmp(&in0.start);
+                }
+            }
+
+            if let Some(_in0) = &a.indices {
+                if b.indices.is_none() {
+                    return Ordering::Less;
+                }
+            }
+
+            if let Some(_in0) = &b.indices {
+                if a.indices.is_none() {
+                    return Ordering::Greater;
+                }
+            }
+
+            b.remove_after.cmp(&a.remove_after)
+        });
+
+        // Convert fuzz configs to fuzz
+        let mut fuzzes: Vec<Fuzz> = Vec::new();
+
+        for c in &fuzz_configs {
+            let mut indices = c.indices.clone().unwrap_or(0..fuzzed_payload.len());
+            indices.end = min(indices.end, fuzzed_payload.len() - c.remove_after);
+
+            let map: FuzzMap = match c.map.clone() {
+                Some(FuzzMapConfig::Word { byte_count }) => FuzzMap::Word { byte_count },
+                Some(FuzzMapConfig::Characters { chars, byte_count }) => FuzzMap::Bytes {
+                    bytes: decode_str(&chars),
+                    byte_count,
+                },
+                _ => FuzzMap::Word { byte_count: 1 },
+            };
+
+            let (mapped_length, max_val) = match &map {
+                FuzzMap::Word { byte_count } => (byte_count, 1u32 << (byte_count * 8)),
+                FuzzMap::Bytes { bytes, byte_count } => {
+                    (byte_count, bytes.len().pow(*byte_count as u32) as u32)
+                }
+            };
+
+            let range = match c.range.clone() {
+                Some(r) => r,
+                None => 0..(max_val),
+            };
+
+            if range.end > max_val {
+                panic!(
+                    "Fuzzing range exceeds maximum fuzz value. {} does not fit into {} bytes",
+                    range.end - 1,
+                    mapped_length
+                );
+            }
+
+            fuzzes.push(Fuzz {
+                mapped_length: *mapped_length,
+                map,
+                value: range.start,
+                index: usize::MAX,
+                prefix: decode_str(&c.prefix),
+                suffix: decode_str(&c.suffix),
+                range: range,
+                indices: indices,
+                remove_after: c.remove_after,
+                inherit_value_from: None,
+                right_of: None,
+                left_of: None,
             });
+        }
 
-            match fuzz_config {
-                Some(fuzz_config) => {
-                    let mut indices = vec![i];
-                    let mut fuzz: Fuzz = fuzz_config.clone().into();
-                    let value = fuzz.value;
-                    let bytes = fuzz_config.bytes;
-
-                    if let Some(&fuzz_i) = fuzz_lookup.get(&char) {
-                        if let FuzzMode::ReplaceLocked(old_indices) =
-                            &character_replaces[fuzz_i].mode
-                        {
-                            indices.extend(old_indices.iter());
-                            character_replaces[fuzz_i].mode =
-                                FuzzMode::ReplaceLocked(indices.clone());
-                        }
-
-                        // fuzz.mode = FuzzMode::LinkedReplace(fuzz_i)
-                    } else {
-                        // fuzz.mode = FuzzMode::Replace;
-                        fuzz.mode = FuzzMode::ReplaceLocked(indices.clone());
-
-                        if let FuzzModeConfig::ReplaceCharacters(replace) = &fuzz_config.fuzz_mode {
-                            for char in replace.chars() {
-                                fuzz_lookup.insert(char, character_replaces.len());
-                            }
-                        }
-
-                        character_replaces.push(fuzz);
-                    }
-
-                    for i in indices {
-                        let prefix = &character_replaces.last().unwrap().prefix;
-
-                        for (j, byte) in prefix.iter().enumerate() {
-                            fuzzed_payload[i + j] = *byte;
-                        }
-
-                        for byte_offset in 0..bytes {
-                            let byte = &character_replaces
-                                .last()
-                                .unwrap()
-                                .range
-                                .map(value, byte_offset)
-                                .unwrap_or(0u8);
-
-                            if i + byte_offset >= fuzzed_payload.len() {
-                                panic!("ReplaceCharacters overflow");
-                            }
-
-                            fuzzed_payload[i + byte_offset + prefix.len()] = *byte;
+        // Value inheritance and right_of
+        for (i, c0) in fuzz_configs.iter().enumerate() {
+            if let Some(id0) = &c0.inherit_value_from {
+                for (j, c1) in fuzz_configs.iter().enumerate() {
+                    if let Some(id1) = &c1.id {
+                        if id0 == id1 {
+                            fuzzes[i].inherit_value_from = Some(j);
+                            break;
                         }
                     }
-
-                    // original_payload.append(&mut char.to_string().as_bytes().to_vec());
                 }
-                None => {
-                    // let mut bytes = String::from(char).as_bytes().to_vec();
-                    // fuzzed_payload.append(&mut bytes.clone());
-                    // original_payload.append(&mut bytes);
+            }
+
+            if let Some(id0) = &c0.right_of {
+                for (j, c1) in fuzz_configs.iter().enumerate() {
+                    if let Some(id1) = &c1.id {
+                        if id0 == id1 {
+                            fuzzes[i].right_of = Some(j);
+                            fuzzes[j].left_of = Some(i);
+                            break;
+                        }
+                    }
                 }
             }
         }
-        // println!("{:?} {:?}", original_payload, fuzzed_payload);
-        let fuzzes = [inserts, replaces, character_replaces].concat();
-        // println!("{:?} {:?}", original_payload, fuzzed_payload);
 
-        Payload {
-            bytes: fuzzed_payload,
-            original_bytes: original_payload,
-            config,
-            fuzz_insert_i: fuzzes
+        let byte_count: isize = (fuzzed_payload.len() as isize)
+            + fuzzes
                 .iter()
-                .zip(0..fuzzes.len())
-                .filter(|(f, _)| matches!(f.mode, FuzzMode::Insert(_)))
-                .map(|(_, i)| i)
-                .collect(),
+                .map(|f| {
+                    (f.prefix.len() as isize) + (f.suffix.len() as isize)
+                        - (f.remove_after as isize)
+                        + (f.mapped_length as isize)
+                })
+                .sum::<isize>();
+
+        let sorted_fuzz = (0..fuzzes.len()).collect::<Vec<usize>>();
+
+        let mut ret = Payload {
+            byte_count: byte_count
+                .try_into()
+                .expect("Invalid total byte count in payload"),
             fuzz: fuzzes,
+            sorted_fuzz_lookup: sorted_fuzz.clone(),
+            inverse_sorted_fuzz_lookup: sorted_fuzz,
+            bytes: fuzzed_payload,
             finished: false,
-        }
-    }
-}
-
-impl From<FuzzConfig> for Fuzz {
-    fn from(config: FuzzConfig) -> Self {
-        // let min = config.min.unwrap_or(0);
-        // let max = config
-        //     .max
-        //     .unwrap_or(((u64::MAX & (1 << (config.bytes * 8))) - 1) as u32);
-
-        if config.bytes > 4 {
-            panic!(
-                "Too many bytes in fuzz config. Received {}, maximum is 4",
-                config.bytes
-            );
-        }
-
-        let mode = match config.fuzz_mode {
-            FuzzModeConfig::InsertAllPossible => FuzzMode::Insert(0),
-            FuzzModeConfig::ReplaceAllPossible => FuzzMode::Replace(0),
-            FuzzModeConfig::ReplaceCharacters(_) => FuzzMode::ReplaceLocked(vec![]),
-        };
-
-        let range = match &config.fuzz_range {
-            Some(range) => range.into(),
-            None => FuzzRange::MinMax {
-                min: 0,
-                max: ((u64::MAX & (1 << (config.bytes * 8))) - 1) as u32,
-            },
-        };
-
-        Fuzz {
-            range,
-            mode,
-            value: 0,
-            prefix: config.prefix.bytes().collect(),
             config,
+        };
+
+        if ret.init().is_err() {
+            panic!("Could not init Payload: {:#?}", ret);
         }
+
+        ret
     }
 }
 
 pub struct PayloadIter<'a> {
     pub payload: &'a Payload,
-    pub i: usize,
+    pub byte_i: usize,
     pub fuzz_i: usize,
     pub fuzz_byte_offset: usize,
+    pub skip: usize,
+    pub truncated: usize,
 }
 
 // Iterates payload bytes.
-// Either replaces or inserts fuzzed bytes to the original payload
+// Inserts fuzzed values into the payload
 impl<'a> Iterator for PayloadIter<'a> {
     type Item = u8;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.fuzz_i > 0 {
-            let i = self.payload.fuzz_insert_i[self.fuzz_i - 1];
-            let fuzz = &self.payload.fuzz[i];
+            let fuzz_i = self.payload.sorted_fuzz_lookup[self.fuzz_i - 1];
+            let fuzz = &self.payload.fuzz[fuzz_i];
 
-            if let FuzzMode::Insert(j) = fuzz.mode {
-                // println!("{} {}", self.i, j);
+            if fuzz.index <= self.byte_i {
+                let fuzz = if let Some(i) = fuzz.inherit_value_from {
+                    &self.payload.fuzz[i]
+                } else {
+                    fuzz
+                };
 
-                if self.i == j {
-                    let offset_target = fuzz.config.bytes - 1 + fuzz.prefix.len();
-                    let byte_offset = offset_target - self.fuzz_byte_offset;
+                let o0 = self.fuzz_byte_offset as i32;
+                let o1 = o0 - fuzz.prefix.len() as i32;
+                let o2 = o1 - fuzz.mapped_length as i32;
 
-                    let next = if self.fuzz_byte_offset < fuzz.prefix.len() {
-                        fuzz.prefix[self.fuzz_byte_offset]
-                    } else {
-                        let value = fuzz.range.map(fuzz.value, byte_offset).unwrap();
-                        ((value >> (byte_offset * 8)) & 0xff) as u8
-                    };
+                let byte = if o0 < fuzz.prefix.len() as i32 {
+                    fuzz.prefix[self.fuzz_byte_offset]
+                } else if o1 < fuzz.mapped_length as i32 {
+                    fuzz.map.map(fuzz.value, o1 as usize)
+                } else if o2 < fuzz.suffix.len() as i32 {
+                    fuzz.suffix[o2 as usize]
+                } else {
+                    0
+                };
 
-                    // let offset = self.fuzz_byte_offset;
-                    self.fuzz_byte_offset += 1;
+                self.fuzz_byte_offset += 1;
 
-                    if self.fuzz_byte_offset > offset_target {
-                        self.fuzz_i -= 1;
-                        self.fuzz_byte_offset = 0;
-                    }
-
-                    return Some(next);
+                if o2 + 1 >= fuzz.suffix.len() as i32 {
+                    self.fuzz_i -= 1;
+                    self.fuzz_byte_offset = 0;
+                    self.byte_i += fuzz.remove_after;
+                    self.truncated += fuzz.remove_after;
                 }
+
+                return Some(byte);
             }
         }
 
-        if self.i >= self.payload.bytes.len() {
+        if self.byte_i >= self.payload.bytes.len() {
             return None;
         }
 
-        self.i += 1;
-        Some(self.payload.bytes[self.i - 1])
+        self.byte_i += 1;
+        Some(self.payload.bytes[self.byte_i - 1])
     }
 }
 
@@ -569,9 +640,11 @@ impl<'a> IntoIterator for &'a Payload {
     fn into_iter(self) -> Self::IntoIter {
         PayloadIter {
             payload: self,
-            i: 0,
-            fuzz_i: self.fuzz_insert_i.len(),
+            byte_i: 0,
+            fuzz_i: self.fuzz.len(),
             fuzz_byte_offset: 0,
+            skip: 0,
+            truncated: 0,
         }
     }
 }
@@ -582,6 +655,7 @@ pub fn load_payloads() -> Config {
     toml::from_str(&payloads_string).expect("Error while parsing payloads.toml")
 }
 
+// 3.3s in total
 #[cfg(test)]
 mod tests {
     use crate::util::byte_to_string;
@@ -600,13 +674,14 @@ mod tests {
         )
     }
 
+    #[allow(unused)]
     fn print_buffer(name: &str, buffer: &[u8]) {
         println!("{}", buffer_as_string(name, buffer));
     }
 
     #[test]
     fn creation() {
-        let _config: Config = toml::from_str(
+        let config: Config = toml::from_str(
             r#"
                 [[payloads]]
                 name = "empty"
@@ -635,25 +710,82 @@ mod tests {
                 datatype = "String"
                 key = "q"
                 [[payloads.fuzz]]
-                fuzz_mode = "ReplaceAllPossible"
+                map = { Word = { byte_count = 1 }}
                 [[payloads.fuzz]]
-                fuzz_mode = "InsertAllPossible"
-                [[payloads.fuzz]]
-                fuzz_mode = { ReplaceCharacters = "@" }
-
-                [[payloads]]
-                name = "large_float"
-                payload = '1.79e308'
-                datatype = "Float"
-                [[payloads.fuzz]]
-                fuzz_mode = "ReplaceAllPossible"
-                # Digits
-                fuzz_range = { Characters = { chars = '0123456789', length = 1 } }
-                [[payloads.fuzz]]
-                bytes = 2
+                map = { Characters = { chars = '\x00\x01A', byte_count = 1 }}
+                prefix = 'asdf'
+                suffix = 'qwer'
+                remove_after = 2
         "#,
         )
         .unwrap();
+
+        assert_eq!(config.payloads.len(), 4);
+        let p = &config.payloads[3];
+        assert!(matches!(
+            p.fuzz[0].map,
+            Some(FuzzMapConfig::Word { byte_count: 1 })
+        ));
+
+        match &p.fuzz[1].map {
+            Some(FuzzMapConfig::Characters {
+                chars,
+                byte_count: _,
+            }) => {
+                assert_eq!(decode_str(&chars)[..], [0x0, 0x1, 0x41])
+            }
+            _ => panic!(),
+        }
+        assert_eq!(p.fuzz[1].prefix, "asdf".to_string());
+        assert_eq!(p.fuzz[1].suffix, "qwer".to_string());
+        assert_eq!(p.fuzz[1].remove_after, 2);
+    }
+
+    // 0.29s
+    #[test]
+    fn performance() {
+        // Chained right_of don't work properly
+        let config: Config = toml::from_str(
+            r#"
+                [[payloads]]
+                name = "duplicate_keys_single_byte"
+                payload = ''
+                [[payloads.fuzz]]
+                id = '0'
+                map = { Word = { byte_count = 2 }}
+                [[payloads.fuzz]]
+                right_of = '0'
+                map = { Word = { byte_count = 1 }}
+        "#,
+        )
+        .unwrap();
+
+        let mut payload: Payload = config.payloads[0].clone().into();
+        println!("{:?}", payload.config);
+
+        for i in 0..(u32::MAX & 0xffffff) {
+            let mut it = payload.into_iter();
+            // let d = it.next().unwrap();
+            let c = it.next().unwrap();
+            let b = it.next().unwrap();
+            let a = it.next().unwrap();
+            // println!("{} {} {} {}", a, b, c, d);
+            // println!("{} {} {}", a, b, c);
+
+            // assert_eq!(((i >> 24) & 0xff) as u8, d);
+            assert_eq!(((i >> 16) & 0xff) as u8, c);
+            assert_eq!(((i >> 8) & 0xff) as u8, b);
+            assert_eq!(((i >> 0) & 0xff) as u8, a);
+            assert!(it.next().is_none());
+            let _ = payload.advance();
+        }
+
+        assert!(
+            payload.advance().is_err(),
+            "Should not have next\n{}\n{:#?}",
+            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+            payload.fuzz
+        );
     }
 
     #[test]
@@ -663,11 +795,9 @@ mod tests {
                 [[payloads]]
                 name = "duplicate_keys_single_byte"
                 payload = '{"@":2,"q":3}'
-                datatype = "Int"
-                key = "q"
                 [[payloads.fuzz]]
-                fuzz_mode = { ReplaceCharacters = "@" }
-                # replace_characters = "@"
+                indices = { start = 2, end = 2 }
+                remove_after = 1
         "#,
         )
         .unwrap();
@@ -701,10 +831,7 @@ mod tests {
                 [[payloads]]
                 name = "duplicate_keys_single_byte"
                 payload = '{"q":2,"q":3}'
-                datatype = "Int"
-                key = "q"
                 [[payloads.fuzz]]
-                bytes = 1
         "#,
         )
         .unwrap();
@@ -712,8 +839,8 @@ mod tests {
             [vec![0], config.payloads[0].payload.as_bytes().to_vec()].concat();
         let mut payload: Payload = config.payloads[0].clone().into();
 
-        println!("{:?}", config);
-        println!("{:?}", payload);
+        println!("{:#?}", config);
+        println!("{:#?}", payload);
 
         for i in 0..buffer.len() {
             buffer[i] = 0;
@@ -750,7 +877,9 @@ mod tests {
                 datatype = "String"
                 key = "q"
                 [[payloads.fuzz]]
+                id = "0"
                 [[payloads.fuzz]]
+                right_of = "0"
         "#,
         )
         .unwrap();
@@ -758,7 +887,7 @@ mod tests {
         let original_buffer: Vec<u8> = config.payloads[0].payload.as_bytes().to_vec();
         let mut payload: Payload = config.payloads[0].clone().into();
 
-        println!("{:?}", payload);
+        println!("{:#?}", payload);
 
         let mut byte0_i = 0;
         let mut byte1_i = 0;
@@ -766,7 +895,6 @@ mod tests {
         loop {
             for b0 in 0..=255 {
                 for b1 in 0..=255 {
-                    // println!("{} {}", byte0_i, byte1_i);
                     let expected = [
                         original_buffer[0..byte0_i].to_vec(),
                         vec![b0],
@@ -782,19 +910,15 @@ mod tests {
                     assert_eq!(
                         expected,
                         payload.into_iter().collect::<Vec<u8>>(),
-                        "{}\n{}",
+                        "{}\n{}\n{:#?}",
                         buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
                         buffer_as_string("Expected", &expected),
+                        payload.fuzz,
                     );
-
-                    // assert!(payload.advance().is_err(), "Should not have next",);
 
                     let _ = payload.advance();
                 }
             }
-
-            // print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
-            // print_buffer("Expected", &expected);
 
             if byte1_i >= original_buffer.len() {
                 if byte0_i >= original_buffer.len() {
@@ -815,6 +939,95 @@ mod tests {
     }
 
     #[test]
+    fn insert_two_bytes_slow() {
+        let config: Config = toml::from_str(
+            r#"
+                [[payloads]]
+                name = "duplicate_keys_insert_two_bytes"
+                payload = '{"q":2,"q":3}'
+                datatype = "Int"
+                key = "q"
+                [[payloads.fuzz]]
+                [[payloads.fuzz]]
+        "#,
+        )
+        .unwrap();
+
+        let original_buffer: Vec<u8> = config.payloads[0].payload.as_bytes().to_vec();
+        let mut payload: Payload = config.payloads[0].clone().into();
+
+        println!("{:#?}", payload);
+
+        let mut byte0_i = 0;
+        let mut byte1_i = 0;
+        let mut byte0_first = true;
+
+        loop {
+            for b0 in 0..=255 {
+                for b1 in 0..=255 {
+                    let expected = if byte0_first {
+                        [
+                            original_buffer[0..byte0_i].to_vec(),
+                            vec![b0],
+                            original_buffer[byte0_i..byte1_i].to_vec(),
+                            vec![b1],
+                            original_buffer[byte1_i..].to_vec(),
+                        ]
+                    } else {
+                        [
+                            original_buffer[0..byte1_i].to_vec(),
+                            vec![b1],
+                            original_buffer[byte1_i..byte0_i].to_vec(),
+                            vec![b0],
+                            original_buffer[byte0_i..].to_vec(),
+                        ]
+                    }
+                    .concat();
+
+                    // print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
+                    // print_buffer("Expected", &expected);
+
+                    assert_eq!(
+                        expected,
+                        payload.into_iter().collect::<Vec<u8>>(),
+                        "\n{}\n{}\n{:#?}",
+                        buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+                        buffer_as_string("Expected", &expected),
+                        payload.fuzz,
+                    );
+
+                    let _ = payload.advance();
+                }
+            }
+
+            if byte1_i >= original_buffer.len() {
+                if byte0_i >= original_buffer.len() {
+                    break;
+                }
+                byte0_i += 1;
+                byte1_i = 0;
+                byte0_first = false;
+            } else {
+                if byte0_i == byte1_i && !byte0_first {
+                    byte0_first = true;
+                } else {
+                    byte1_i += 1;
+
+                    if byte0_i == byte1_i {
+                        byte0_first = false;
+                    }
+                }
+            }
+        }
+
+        assert!(
+            payload.advance().is_err(),
+            "Should not have next\n{}",
+            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+        );
+    }
+
+    #[test]
     fn replace_two_bytes() {
         let config: Config = toml::from_str(
             r#"
@@ -824,9 +1037,11 @@ mod tests {
                 datatype = "String"
                 key = "q"
                 [[payloads.fuzz]]
-                fuzz_mode = "ReplaceAllPossible"
+                remove_after = 1
+                id = "0"
                 [[payloads.fuzz]]
-                fuzz_mode = "ReplaceAllPossible"
+                remove_after = 1
+                right_of = "0"
         "#,
         )
         .unwrap();
@@ -834,18 +1049,14 @@ mod tests {
         let original_buffer: Vec<u8> = config.payloads[0].payload.as_bytes().to_vec();
         let mut payload: Payload = config.payloads[0].clone().into();
 
-        println!("{:?}", payload);
+        println!("{:#?}", payload);
 
         let mut byte0_i = 0;
         let mut byte1_i = 1;
 
         loop {
             for b0 in 0..=255 {
-                // original_buffer[byte0_i] = b0;
                 for b1 in 0..=255 {
-                    // original_buffer[byte1_i] = b1;
-
-                    // println!("{} {}", byte0_i, byte1_i);
                     let expected = [
                         original_buffer[0..byte0_i].to_vec(),
                         vec![b0],
@@ -861,19 +1072,15 @@ mod tests {
                     assert_eq!(
                         expected,
                         payload.into_iter().collect::<Vec<u8>>(),
-                        "\n{}\n{}",
+                        "\n{}\n{}\n{:#?}",
                         buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
                         buffer_as_string("Expected", &expected),
+                        payload.fuzz
                     );
-
-                    // assert!(payload.advance().is_err(), "Should not have next",);
 
                     let _ = payload.advance();
                 }
             }
-
-            // print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
-            // print_buffer("Expected", &expected);
 
             if byte1_i >= original_buffer.len() - 1 {
                 if byte0_i >= original_buffer.len() - 2 {
@@ -886,6 +1093,7 @@ mod tests {
             }
         }
 
+        println!("{:#?}", payload.fuzz);
         assert!(
             payload.advance().is_err(),
             "Should not have next\n{}",
@@ -893,6 +1101,159 @@ mod tests {
         );
     }
 
+    #[test]
+    fn replace_two_bytes_slow() {
+        let config: Config = toml::from_str(
+            r#"
+                [[payloads]]
+                name = "duplicate_keys_insert_two_bytes"
+                payload = '{"q":2,"q":3}'
+                [[payloads.fuzz]]
+                remove_after = 1
+                [[payloads.fuzz]]
+                remove_after = 1
+        "#,
+        )
+        .unwrap();
+
+        let original_buffer: Vec<u8> = config.payloads[0].payload.as_bytes().to_vec();
+        let mut payload: Payload = config.payloads[0].clone().into();
+
+        println!("{:#?}", payload);
+
+        let mut byte0_i = 0;
+        let mut byte1_i = 1;
+
+        loop {
+            for b0 in 0..=255 {
+                for b1 in 0..=255 {
+                    let expected = if byte0_i <= byte1_i {
+                        [
+                            original_buffer[0..byte0_i].to_vec(),
+                            vec![b0],
+                            original_buffer[byte0_i + 1..byte1_i].to_vec(),
+                            vec![b1],
+                            original_buffer[byte1_i + 1..].to_vec(),
+                        ]
+                    } else {
+                        [
+                            original_buffer[0..byte1_i].to_vec(),
+                            vec![b1],
+                            original_buffer[byte1_i + 1..byte0_i].to_vec(),
+                            vec![b0],
+                            original_buffer[byte0_i + 1..].to_vec(),
+                        ]
+                    }
+                    .concat();
+
+                    // print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
+                    // print_buffer("Expected", &expected);
+
+                    assert_eq!(
+                        expected,
+                        payload.into_iter().collect::<Vec<u8>>(),
+                        "\n{}\n{}\n{:#?}",
+                        buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+                        buffer_as_string("Expected", &expected),
+                        payload.fuzz,
+                    );
+
+                    let _ = payload.advance();
+                }
+            }
+
+            if byte1_i >= original_buffer.len() - 1 {
+                if byte0_i >= original_buffer.len() - 2 {
+                    break;
+                }
+                byte0_i += 1;
+                byte1_i = 0;
+            } else {
+                byte1_i += 1;
+
+                if byte0_i == byte1_i {
+                    byte1_i += 1;
+                }
+            }
+        }
+
+        assert!(
+            payload.advance().is_err(),
+            "Should not have next\n{}",
+            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+        );
+    }
+
+    #[test]
+    fn prefix() {
+        let config: Config = toml::from_str(
+            r#"
+                [[payloads]]
+                name = "duplicate_keys_replace_unicode"
+                payload = '{"q":2,"q":3}'
+                [[payloads.fuzz]]
+                map = { Characters = { chars = '0123456789abcdef', byte_count = 4 }}
+                prefix = '\u'
+                remove_after = 1
+        "#,
+        )
+        .unwrap();
+
+        let buffer: Vec<u8> = config.payloads[0].payload.as_bytes().to_vec();
+        let mut payload: Payload = config.payloads[0].clone().into();
+
+        println!("{:#?}", payload);
+
+        let chars = "0123456789abcdef".bytes().into_iter().collect::<Vec<u8>>();
+        let mut byte0_i = 0;
+
+        loop {
+            for b0 in 0..16 {
+                for b1 in 0..16 {
+                    for b2 in 0..16 {
+                        for b3 in 0..16 {
+                            let expected = [
+                                buffer[0..byte0_i].to_vec(),
+                                "\\u".bytes().into_iter().collect(),
+                                vec![chars[b0], chars[b1], chars[b2], chars[b3]],
+                                buffer[byte0_i + 1..].to_vec(),
+                            ]
+                            .concat();
+
+                            // print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
+                            // print_buffer("Expected", &expected);
+
+                            assert_eq!(
+                                expected,
+                                payload.into_iter().collect::<Vec<u8>>(),
+                                "\n{}\n{}\n{:#?}",
+                                buffer_as_string(
+                                    "Payload",
+                                    &payload.into_iter().collect::<Vec<u8>>()
+                                ),
+                                buffer_as_string("Expected", &expected),
+                                payload.fuzz,
+                            );
+
+                            let _ = payload.advance();
+                        }
+                    }
+                }
+            }
+
+            if byte0_i >= buffer.len() - 1 {
+                break;
+            }
+
+            byte0_i += 1;
+        }
+
+        assert!(
+            payload.advance().is_err(),
+            "Should not have next\n{}",
+            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+        );
+    }
     #[test]
     fn insert_one_locked_word() {
         let config: Config = toml::from_str(
@@ -903,8 +1264,9 @@ mod tests {
                 datatype = "Int"
                 key = "q"
                 [[payloads.fuzz]]
-                fuzz_mode = { ReplaceCharacters = "@" }
-                bytes = 2
+                indices = { start = 6, end = 6 }
+                remove_after = 1
+                map = { Word = { byte_count = 2 }}
         "#,
         )
         .unwrap();
@@ -912,14 +1274,13 @@ mod tests {
         let mut payload: Payload = config.payloads[0].clone().into();
         let i = 6;
 
-        println!("{:?}", payload);
-        // assert_eq!(payload.fuzz[0].max, u16::MAX as u32);
+        println!("{:#?}", payload);
 
         for byte in 0..=(u16::MAX as u32) {
             let expected = [
                 buffer[0..i].to_vec(),
                 byte.to_be_bytes()[2..4].to_vec(),
-                buffer[i + payload.fuzz[0].config.bytes..].to_vec(),
+                buffer[i + 1..].to_vec(),
             ]
             .concat();
 
@@ -954,14 +1315,12 @@ mod tests {
                 datatype = "Int"
                 key = "q"
                 [[payloads.fuzz]]
-                bytes = 2
+                map = { Word = { byte_count = 2 }}
         "#,
         )
         .unwrap();
         let buffer: Vec<u8> = config.payloads[0].payload.as_bytes().to_vec();
         let mut payload: Payload = config.payloads[0].clone().into();
-
-        // assert_eq!(payload.fuzz[0].max, u32::MAX & 0xffff);
 
         for i in 0..buffer.len() + 1 {
             for byte in 0..=(u16::MAX as u32) {
@@ -983,13 +1342,8 @@ mod tests {
                     buffer_as_string("Expected", &expected),
                 );
 
-                // buffer[i] = buffer[i].wrapping_add(1);
                 let _ = payload.advance();
             }
-
-            // if i < buffer.len() - 1 {
-            //     buffer[i] = buffer[i + 1];
-            // }
         }
 
         assert!(
@@ -1009,8 +1363,9 @@ mod tests {
                 datatype = "String"
                 key = "q"
                 [[payloads.fuzz]]
-                fuzz_mode = { ReplaceCharacters = '"' }
                 [[payloads.fuzz]]
+                map = { ReplaceCharacters = { chars = '"', replace_with = { Word = { byte_count = 1 }}}}
+                remove_after = 1
         "#,
         )
         .unwrap();
@@ -1018,33 +1373,20 @@ mod tests {
         let mut buffer: Vec<u8> = config.payloads[0].payload.as_bytes().to_vec();
         let mut payload: Payload = config.payloads[0].clone().into();
 
-        // println!(
-        //     "{:?}",
-        //     payload
-        //         .fuzz
-        //         .iter()
-        //         .map(|f| (f.i, f.value, f.replace_value_with_i))
-        //         .collect::<Vec<(usize, u32, Option<usize>)>>()
-        // );
-
         let mut byte0_i = 0;
-        // let mut byte1_i = 0;
 
         loop {
-            for quote_byte in 0..=255 {
-                buffer[1] = quote_byte;
-                buffer[3] = quote_byte;
-                buffer[5] = quote_byte;
-                buffer[7] = quote_byte;
+            for insert_byte in 0..=255 {
+                for quote_byte in 0..=255 {
+                    buffer[1] = quote_byte;
+                    buffer[3] = quote_byte;
+                    buffer[5] = quote_byte;
+                    buffer[7] = quote_byte;
 
-                for insert_byte in 0..=255 {
                     let expected = [
                         buffer[0..byte0_i].to_vec(),
                         vec![insert_byte],
                         buffer[byte0_i..].to_vec(),
-                        // buffer[byte0_i..byte1_i].to_vec(),
-                        // vec![b1],
-                        // buffer[byte1_i..].to_vec(),
                     ]
                     .concat();
 
@@ -1054,29 +1396,20 @@ mod tests {
                     assert_eq!(
                         expected,
                         payload.into_iter().collect::<Vec<u8>>(),
-                        "{}\n{}",
+                        "{}\n{}\n{:#?}\n{:#?}",
                         buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
                         buffer_as_string("Expected", &expected),
+                        payload.fuzz,
+                        payload.sorted_fuzz_lookup,
                     );
-
-                    // assert!(payload.advance().is_err(), "Should not have next",);
 
                     let _ = payload.advance();
                 }
             }
-
-            // print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
-            // print_buffer("Expected", &expected);
-
-            // if byte1_i >= buffer.len() {
             if byte0_i >= buffer.len() {
                 break;
             }
             byte0_i += 1;
-            //     byte1_i = byte0_i;
-            // } else {
-            //     byte1_i += 1;
-            // }
         }
 
         assert!(
@@ -1097,6 +1430,8 @@ mod tests {
                 key = "q"
                 [[payloads.fuzz]]
                 [[payloads.fuzz]]
+                map = { Word = { byte_count = 2 } }
+                remove_after = 2
                 fuzz_mode = "ReplaceAllPossible"
                 bytes = 2
         "#,
@@ -1104,20 +1439,18 @@ mod tests {
         .unwrap();
 
         let mut buffer: Vec<u8> = config.payloads[0].payload.as_bytes().to_vec();
-        let original_buffer: Vec<u8> = config.payloads[0].payload.as_bytes().to_vec();
         let mut payload: Payload = config.payloads[0].clone().into();
 
-        println!("{:?}", payload);
+        println!("{:#?}", payload);
 
         let mut insert_i = 0;
-        let mut replace_i = 0;
 
         loop {
-            for replace_byte in 0..=u16::MAX {
-                buffer[replace_i] = ((replace_byte >> 8) & 0xff) as u8;
-                buffer[replace_i + 1] = (replace_byte & 0xff) as u8;
+            for insert_byte in 0..=255 {
+                for replace_byte in 0..=u16::MAX {
+                    buffer[0] = ((replace_byte >> 8) & 0xff) as u8;
+                    buffer[1] = (replace_byte & 0xff) as u8;
 
-                for insert_byte in 0..=255 {
                     let expected = [
                         buffer[0..insert_i].to_vec(),
                         vec![insert_byte],
@@ -1131,32 +1464,21 @@ mod tests {
                     assert_eq!(
                         expected,
                         payload.into_iter().collect::<Vec<u8>>(),
-                        "{}\n{}",
+                        "\n{}\n{}\n{:#?}\n{:?}",
                         buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
                         buffer_as_string("Expected", &expected),
+                        payload.fuzz,
+                        payload.sorted_fuzz_lookup
                     );
-
-                    // assert!(payload.advance().is_err(), "Should not have next",);
 
                     let _ = payload.advance();
                 }
-
-                buffer[replace_i] = original_buffer[replace_i];
-                buffer[replace_i + 1] = original_buffer[replace_i + 1];
             }
 
-            // print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
-            // print_buffer("Expected", &expected);
-
-            if insert_i < buffer.len() {
-                insert_i += 1;
-            } else {
-                if replace_i >= buffer.len() - 2 {
-                    break;
-                }
-                insert_i = 0;
-                replace_i += 1;
+            if insert_i >= buffer.len() {
+                break;
             }
+            insert_i += 2;
         }
 
         assert!(
@@ -1172,80 +1494,71 @@ mod tests {
             r#"
                 [[payloads]]
                 name = "duplicate_keys_single_byte"
-                payload = '[0]'
+                payload = '[2]'
                 datatype = "String"
                 key = "q"
                 [[payloads.fuzz]]
+                range = { start = 0, end = 16 }
                 [[payloads.fuzz]]
-                fuzz_mode = "ReplaceAllPossible"
+                range = { start = 16, end = 32 }
+                remove_after = 1
                 [[payloads.fuzz]]
-                fuzz_mode = { ReplaceCharacters = '[]'}
+                map = { ReplaceCharacters = { chars = '[]', replace_with = { Word = { byte_count = 1 }}}}
+                range = { start = 32, end = 48 }
+                remove_after = 1
         "#,
         )
         .unwrap();
 
         let mut buffer: Vec<u8> = config.payloads[0].payload.as_bytes().to_vec();
-        let original_buffer: Vec<u8> = config.payloads[0].payload.as_bytes().to_vec();
         let mut payload: Payload = config.payloads[0].clone().into();
 
-        println!("{:?}", payload.fuzz);
+        println!("{:#?}", payload.fuzz);
 
         let mut insert_i = 0;
-        let mut replace_i = 0;
 
         loop {
-            for replace_chars_byte in 0..=255 {
-                buffer[0] = replace_chars_byte;
-                buffer[2] = replace_chars_byte;
+            for insert_byte in 0..16 {
+                for replace_byte in 16..32 {
+                    buffer[1] = replace_byte;
 
-                for replace_byte in 0..=255 {
-                    // TODO - does some unnecessary work when replace and
-                    // replace locked share an index
-                    if !(replace_byte == 0 && (replace_i == 0 || replace_i == 2)) {
-                        buffer[replace_i] = replace_byte;
-                    }
+                    for replace_chars_byte1 in 32..48 {
+                        buffer[0] = replace_chars_byte1;
+                        for replace_chars_byte0 in 32..48 {
+                            buffer[2] = replace_chars_byte0;
+                            let expected = [
+                                buffer[0..insert_i].to_vec(),
+                                vec![insert_byte],
+                                buffer[insert_i..].to_vec(),
+                            ]
+                            .concat();
 
-                    for insert_byte in 0..=255 {
-                        let expected = [
-                            buffer[0..insert_i].to_vec(),
-                            vec![insert_byte],
-                            buffer[insert_i..].to_vec(),
-                        ]
-                        .concat();
+                            // print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
+                            // print_buffer("Expected", &expected);
 
-                        // print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
-                        // print_buffer("Expected", &expected);
+                            assert_eq!(
+                                expected,
+                                payload.into_iter().collect::<Vec<u8>>(),
+                                "\n{}\n{}\n{:#?}\n{:?}",
+                                buffer_as_string(
+                                    "Payload",
+                                    &payload.into_iter().collect::<Vec<u8>>(),
+                                ),
+                                buffer_as_string("Expected", &expected),
+                                payload.fuzz,
+                                payload.sorted_fuzz_lookup,
+                            );
 
-                        assert_eq!(
-                            expected,
-                            payload.into_iter().collect::<Vec<u8>>(),
-                            "{} {}\n{}\n{}",
-                            replace_i,
-                            insert_i,
-                            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
-                            buffer_as_string("Expected", &expected),
-                        );
-
-                        // assert!(payload.advance().is_err(), "Should not have next",);
-
-                        let _ = payload.advance();
+                            let _ = payload.advance();
+                        }
                     }
                 }
-                buffer[replace_i] = original_buffer[replace_i];
             }
-
-            // print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
-            // print_buffer("Expected", &expected);
 
             if insert_i < buffer.len() {
                 insert_i += 1;
             } else {
-                insert_i = 0;
-
-                if replace_i >= buffer.len() - 1 {
-                    break;
-                }
-                replace_i += 1;
+                break;
             }
         }
 
@@ -1266,8 +1579,11 @@ mod tests {
                 datatype = "String"
                 key = "q"
                 [[payloads.fuzz]]
+                range = { start = 7, end = 14 }
                 fuzz_range = {MinMax = { min = 7, max = 13 }}
                 [[payloads.fuzz]]
+                range = { start = 48, end = 58 }
+                remove_after = 1
                 fuzz_mode = "ReplaceAllPossible"
                 fuzz_range = {MinMax = { min = 48, max = 57 }}
         "#,
@@ -1278,16 +1594,16 @@ mod tests {
         let original_buffer: Vec<u8> = config.payloads[0].payload.as_bytes().to_vec();
         let mut payload: Payload = config.payloads[0].clone().into();
 
-        println!("{:?}", payload.fuzz);
+        println!("{:#?}", payload.fuzz);
 
         let mut insert_i = 0;
         let mut replace_i = 0;
 
         loop {
-            for replace_byte in 48..=57 {
-                buffer[replace_i] = replace_byte;
+            for insert_byte in 7..=13 {
+                for replace_byte in 48..=57 {
+                    buffer[replace_i] = replace_byte;
 
-                for insert_byte in 7..=13 {
                     let expected = [
                         buffer[0..insert_i].to_vec(),
                         vec![insert_byte],
@@ -1301,131 +1617,30 @@ mod tests {
                     assert_eq!(
                         expected,
                         payload.into_iter().collect::<Vec<u8>>(),
-                        "{} {}\n{}\n{}",
+                        "{} {}\n{}\n{}\n{:#?}\n{:?}",
                         replace_i,
                         insert_i,
                         buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
                         buffer_as_string("Expected", &expected),
+                        payload.fuzz,
+                        payload.sorted_fuzz_lookup
                     );
-
-                    // assert!(payload.advance().is_err(), "Should not have next",);
 
                     let _ = payload.advance();
                 }
                 buffer[replace_i] = original_buffer[replace_i];
             }
 
-            // print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
-            // print_buffer("Expected", &expected);
-
-            if insert_i < buffer.len() {
-                insert_i += 1;
+            if replace_i < buffer.len() - 1 {
+                replace_i += 1;
             } else {
-                insert_i = 0;
+                replace_i = 0;
 
-                if replace_i >= buffer.len() - 1 {
+                if insert_i >= buffer.len() {
                     break;
                 }
-                replace_i += 1;
-            }
-        }
 
-        assert!(
-            payload.advance().is_err(),
-            "Should not have next\n{}",
-            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
-        );
-    }
-
-    #[test]
-    fn prefix() {
-        let config: Config = toml::from_str(
-            r#"
-                [[payloads]]
-                name = "duplicate_keys_single_byte"
-                payload = '{"q":1}'
-                datatype = "String"
-                key = "q"
-                [[payloads.fuzz]]
-                prefix = '%'
-                [[payloads.fuzz]]
-                prefix = '\u00'
-                fuzz_mode = "ReplaceAllPossible"
-                fuzz_range = { Characters = { chars = '0123456789abcdef', length = 2 } }
-                bytes = 2
-        "#,
-        )
-        .unwrap();
-
-        let mut buffer: Vec<u8> = config.payloads[0].payload.as_bytes().to_vec();
-        let original_buffer: Vec<u8> = config.payloads[0].payload.as_bytes().to_vec();
-        let mut payload: Payload = config.payloads[0].clone().into();
-
-        println!("{:?}", payload.fuzz);
-
-        let mut insert_i = 0;
-        let mut replace_i = 4;
-
-        let chars: Vec<u8> = "0123456789abcdef".bytes().collect();
-
-        loop {
-            for replace_byte in 0..16 * 16 {
-                let r0 = chars[replace_byte / 16];
-                let r1 = chars[replace_byte % 16];
-                buffer[replace_i - 4] = '\\' as u8;
-                buffer[replace_i - 3] = 'u' as u8;
-                buffer[replace_i - 2] = '0' as u8;
-                buffer[replace_i - 1] = '0' as u8;
-                buffer[replace_i + 0] = r0;
-                buffer[replace_i + 1] = r1;
-
-                for insert_byte in 0..=255 {
-                    let expected = [
-                        buffer[0..insert_i].to_vec(),
-                        vec!['%' as u8],
-                        vec![insert_byte],
-                        buffer[insert_i..].to_vec(),
-                    ]
-                    .concat();
-
-                    print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
-                    print_buffer("Expected", &expected);
-
-                    assert_eq!(
-                        expected,
-                        payload.into_iter().collect::<Vec<u8>>(),
-                        "{} {}\n{}\n{}",
-                        replace_i,
-                        insert_i,
-                        buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
-                        buffer_as_string("Expected", &expected),
-                    );
-
-                    // assert!(payload.advance().is_err(), "Should not have next",);
-
-                    let _ = payload.advance();
-                }
-
-                buffer[replace_i - 4] = original_buffer[replace_i - 4];
-                buffer[replace_i - 3] = original_buffer[replace_i - 3];
-                buffer[replace_i - 2] = original_buffer[replace_i - 2];
-                buffer[replace_i - 1] = original_buffer[replace_i - 1];
-                buffer[replace_i + 0] = original_buffer[replace_i + 0];
-                buffer[replace_i + 1] = original_buffer[replace_i + 1];
-            }
-
-            // print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
-            // print_buffer("Expected", &expected);
-
-            if insert_i < buffer.len() {
                 insert_i += 1;
-            } else {
-                insert_i = 0;
-
-                if replace_i >= buffer.len() - 2 {
-                    break;
-                }
-                replace_i += 1;
             }
         }
 
@@ -1435,117 +1650,4 @@ mod tests {
             buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
         );
     }
-
-    #[test]
-    fn prefix2() {
-        let config: Config = toml::from_str(
-            r#"
-                [[payloads]]
-                name = "duplicate_keys_single_byte"
-                payload = '{"@.....":1}'
-                datatype = "String"
-                key = "q"
-                [[payloads.fuzz]]
-                prefix = '\u'
-                fuzz_mode = { ReplaceCharacters = '@'}
-                fuzz_range = { Characters = { chars = '0123456789abcdef', length = 4 } }
-                bytes = 4
-        "#,
-        )
-        .unwrap();
-
-        let mut buffer: Vec<u8> = config.payloads[0].payload.as_bytes().to_vec();
-        let mut payload: Payload = config.payloads[0].clone().into();
-
-        println!("{:?}", payload.fuzz);
-
-        let chars: Vec<u8> = "0123456789abcdef".bytes().collect();
-
-        for r0 in 0..16 {
-            buffer[2] = '\\' as u8;
-            buffer[3] = 'u' as u8;
-            buffer[4] = chars[r0];
-            for r1 in 0..16 {
-                buffer[5] = chars[r1];
-                for r2 in 0..16 {
-                    buffer[6] = chars[r2];
-                    for r3 in 0..16 {
-                        buffer[7] = chars[r3];
-
-                        // print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
-                        // print_buffer("Expected", &buffer);
-
-                        assert_eq!(
-                            buffer,
-                            payload.into_iter().collect::<Vec<u8>>(),
-                            "\n{}\n{}",
-                            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
-                            buffer_as_string("Expected", &buffer),
-                        );
-
-                        // assert!(payload.advance().is_err(), "Should not have next",);
-
-                        let _ = payload.advance();
-                    }
-                }
-            }
-        }
-
-        // print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
-        // print_buffer("Expected", &expected);
-
-        assert!(
-            payload.advance().is_err(),
-            "Should not have next\n{}",
-            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
-        );
-    }
-
-    // #[test]
-    // fn prefix3() {
-    //     let config: Config = toml::from_str(
-    //         r#"
-    //             [[payloads]]
-    //             name = "duplicate_keys_replace_key1_unicode_surrogate_pair"
-    //             payload = '{"q":2,"$.....@.....":3}'
-    //             datatype = "Int"
-    //             key = "q"
-    //             [[payloads.fuzz]]
-    //             fuzz_range = { Characters = {chars = '0123456789abcdef', length = 4}}
-    //             fuzz_mode = { ReplaceCharacters = '@' }
-    //             prefix = '\u'
-    //             bytes = 4
-    //             [[payloads.fuzz]]
-    //             fuzz_range = { Characters = {chars = '0123456789abcdef', length = 4}}
-    //             fuzz_mode = { ReplaceCharacters = '$' }
-    //             prefix = '\u'
-    //             bytes = 4
-    //     "#,
-    //     )
-    //     .unwrap();
-    //
-    //     let mut payload: Payload = config.payloads[0].clone().into();
-    //
-    //     println!("{:?}", payload.fuzz);
-    //
-    //     for _ in 0..100 {
-    //         print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
-    //         let _ = payload.advance();
-    //     }
-    //
-    //     for _ in 0..(2i32.pow(16)) {
-    //         let _ = payload.advance();
-    //     }
-    //
-    //     for _ in 0..100 {
-    //         print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
-    //         let _ = payload.advance();
-    //     }
-    //
-    //     assert!(
-    //         payload.advance().is_err(),
-    //         "Should not have next\n{}",
-    //         buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
-    //     );
-    // }
 }

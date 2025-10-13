@@ -281,8 +281,8 @@ func main() {
 	var conn net.Conn
 
 	for {
-		c, err := net.Dial("tcp", "localhost:5000")
-		// conn, err := net.Dial("tcp", "[::1]:5000")
+		c, err := net.Dial("unix", "/tmp/fuzzer.sock")
+		// c, err := net.Dial("tcp", "localhost:5000")
 
 		if err != nil {
 			time.Sleep(time.Millisecond * 100)
@@ -316,12 +316,10 @@ func main() {
 
 	var read_buffer []byte = nil
 	var write_buffer []byte = nil
+	header := make([]byte, 10)
 
 	for {
-		// conn.SetDeadline(time.Now().Add(time.Second * 60))
-
 		// Read header
-		header := make([]byte, 8)
 		byte_offset := 0
 
 		for {
@@ -341,16 +339,16 @@ func main() {
 			}
 		}
 
-		buffer_size := binary.LittleEndian.Uint32(header[0:4])
-		payload_size := binary.LittleEndian.Uint16(header[4:6])
-		batch_size := binary.LittleEndian.Uint16(header[6:8])
+		buffer_size := int(binary.LittleEndian.Uint32(header[0:4]))
+		payload_size := int(binary.LittleEndian.Uint16(header[4:6]))
+		batch_size := int(binary.LittleEndian.Uint32(header[6:10]))
 
-		if read_buffer == nil || len(read_buffer) != int(payload_size)*int(batch_size) {
-			read_buffer = make([]byte, int(payload_size)*int(batch_size))
+		if read_buffer == nil || len(read_buffer) != batch_size*payload_size {
+			read_buffer = make([]byte, batch_size*payload_size)
 		}
 
-		if write_buffer == nil || len(write_buffer) != int(buffer_size) {
-			write_buffer = make([]byte, int(buffer_size))
+		if write_buffer == nil || len(write_buffer) != int(buffer_size<<2) {
+			write_buffer = make([]byte, int(buffer_size<<2))
 		}
 
 		byte_offset = 0

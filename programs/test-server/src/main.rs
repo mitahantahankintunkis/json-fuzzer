@@ -1,48 +1,50 @@
 use regex::Regex;
 use rustyline;
-use std::io::prelude::*;
+use std::io::{prelude::*, Error};
 use std::net::{TcpListener, TcpStream};
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::{Arc, RwLock};
 use std::thread;
 
-// struct Input {
-//     str: String,
-//     n: usize,
-// }
+enum CombinedStream {
+    Unix(UnixStream),
+    TCP(TcpStream),
+}
+
+impl CombinedStream {
+    fn read_exact(&mut self, buf: &mut [u8]) -> Result<(), Error> {
+        match self {
+            CombinedStream::Unix(s) => s.read_exact(buf),
+            CombinedStream::TCP(s) => s.read_exact(buf),
+        }
+    }
+
+    fn write_all(&mut self, buf: &[u8]) -> Result<(), Error> {
+        match self {
+            CombinedStream::Unix(s) => s.write_all(buf),
+            CombinedStream::TCP(s) => s.write_all(buf),
+        }
+    }
+}
 
 struct Client {
     name: String,
-    stream: TcpStream,
+    stream: CombinedStream,
 }
 
 impl Client {
     fn parse_json(&mut self, json: &[u8]) -> String {
-        let batch_size: u16 = 1;
+        let batch_size: u32 = 1;
         let mut read_buffer: Box<Vec<u8>> = Box::new(vec![0; 1 << 16]);
         let mut send_buffer: Box<Vec<u8>> = Box::new(vec![0; 1 << 16]);
 
         send_buffer[0..4].copy_from_slice(&u32::try_from(1024).unwrap().to_le_bytes());
-        send_buffer[6..8].copy_from_slice(&batch_size.to_le_bytes());
-        // let mut prev_message_count = 0;
-
-        // let payload: String;
-
-        // loop {
-        //     let user_input = input.read().unwrap();
-        //     if prev_message_count != user_input.n {
-        //         prev_message_count = user_input.n;
-        //         payload = user_input.str.clone();
-        //         break;
-        //     }
-        //
-        //     std::thread::sleep(std::time::Duration::from_millis(10));
-        // }
-
         send_buffer[4..6].copy_from_slice(&u16::try_from(json.len()).unwrap().to_le_bytes());
-        send_buffer[8..(8 + json.len())].copy_from_slice(json);
+        send_buffer[6..10].copy_from_slice(&batch_size.to_le_bytes());
+        send_buffer[10..(10 + json.len())].copy_from_slice(json);
 
         self.stream
-            .write_all(&send_buffer[0..(8 + json.len())])
+            .write_all(&send_buffer[0..(10 + json.len())])
             .expect("Write error");
 
         // Read client response size
@@ -81,56 +83,66 @@ impl Client {
     }
 }
 
+fn handle_client(mut stream: CombinedStream, clients: Arc<RwLock<Vec<Client>>>) {
+    let mut name_buffer: [u8; 64] = [0; 64];
+
+    // Read client name
+    stream
+        .read_exact(&mut name_buffer)
+        .expect("Could not read client name");
+
+    let mut name_length = 0;
+
+    for i in 0..name_buffer.len() {
+        if name_buffer[i] == 0 {
+            break;
+        }
+
+        name_length = i;
+    }
+
+    let client_name: String = std::str::from_utf8(&name_buffer[0..name_length + 1])
+        .unwrap_or("<?>")
+        .to_string();
+
+    match clients.write() {
+        Ok(mut s) => s.push(Client {
+            name: client_name,
+            stream,
+        }),
+        Err(e) => eprintln!("{}", e),
+    }
+}
+
 fn main() -> std::io::Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:5000")?;
-
-    // let user_input: Arc<RwLock<Input>> = Arc::new(RwLock::new(Input {
-    //     str: String::new(),
-    //     n: 0,
-    // }));
-
     let clients: Arc<RwLock<Vec<Client>>> = Arc::new(RwLock::new(Vec::new()));
-    // let main_thread_input = user_input.clone();
 
-    let thread_streams = clients.clone();
     // Listen for connections
+    let listener = TcpListener::bind("127.0.0.1:5000")?;
+    let tcp_thread_streams = clients.clone();
+
     thread::spawn(move || loop {
         for stream in listener.incoming() {
-            // let input = user_input.clone();
-
             match stream {
-                Ok(mut stream) => {
-                    let mut name_buffer: [u8; 64] = [0; 64];
+                Ok(stream) => {
+                    handle_client(CombinedStream::TCP(stream), tcp_thread_streams.clone());
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e)
+                }
+            }
+        }
+    });
 
-                    // Read client name
-                    stream
-                        .read_exact(&mut name_buffer)
-                        .expect("Could not read client name");
+    // Listen for connections
+    let listener = UnixListener::bind("/tmp/fuzzer.sock")?;
+    let unix_thread_streams = clients.clone();
 
-                    let mut name_length = 0;
-
-                    for i in 0..name_buffer.len() {
-                        if name_buffer[i] == 0 {
-                            break;
-                        }
-
-                        name_length = i;
-                    }
-
-                    let client_name: String = std::str::from_utf8(&name_buffer[0..name_length + 1])
-                        .unwrap_or("<?>")
-                        .to_string();
-
-                    match thread_streams.write() {
-                        Ok(mut s) => s.push(Client {
-                            name: client_name,
-                            stream,
-                        }),
-                        Err(e) => eprintln!("{}", e),
-                    }
-                    // thread::spawn(move || {
-                    //     handle_client(&mut stream, input);
-                    // });
+    thread::spawn(move || loop {
+        for stream in listener.incoming() {
+            match stream {
+                Ok(stream) => {
+                    handle_client(CombinedStream::Unix(stream), unix_thread_streams.clone());
                 }
                 Err(e) => {
                     eprintln!("Error: {}", e)
@@ -144,8 +156,6 @@ fn main() -> std::io::Result<()> {
 
     loop {
         let line = reader.readline("\n\n\x1b[2K\x1b[1m=> ");
-        // let _n = std::io::stdin().read_line(&mut input_string).unwrap();
-        // std::io::stdout().flush().unwrap();
         println!("\x1b[22m");
 
         match line {
@@ -165,8 +175,6 @@ fn main() -> std::io::Result<()> {
                                 let byte =
                                     u8::from_str_radix(&json[(mat.start() + 2)..mat.end()], 16)
                                         .unwrap();
-                                // let byte =
-                                //     json[(mat.start() + 2)..mat.end()].parse::<u8>().unwrap();
 
                                 json_bytes.push(byte);
                                 prev = mat.end();
@@ -188,13 +196,6 @@ fn main() -> std::io::Result<()> {
                     Err(e) => eprintln!("{}", e),
                 }
             }
-            // match main_thread_input.write() {
-            //     Ok(mut w) => {
-            //     }
-            //     Err(e) => {
-            //         eprintln!("Could not send input to threads: {}", e);
-            //     }
-            // },
             Err(rustyline::error::ReadlineError::Interrupted) => {
                 println!("CTRL-C");
                 break;
