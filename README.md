@@ -75,7 +75,7 @@ Once inside the image, run the following commands:
 ### Preliminary results
 The project currently focuses only on investigating how different parsers handle JSON objects containing duplicate keys. The latest JSON specification does not specify the expected behavior for duplicate keys, leaving it to be implementation specific\[5]. This ambiguity has led to vulnerabilities before, for example in Apache CouchDB, where inconsistencies between Erlang and Javascript JSON parsers enabled an attacker to potentially gain administrative access to any public-facing CouchDB instance\[4].
 
-The project has found 364 parser combinations out of 676 possible (54%) where parsers return different values in JSON objects when querying for the same key. These cases are listed in the figure below and the table located at [/analyzed/README.md](./analyzed/README.md).
+The project has found 654 parser combinations out of 1089 possible (60.1%) where parsers return different values in JSON objects when querying for the same key. These cases are listed in the figure below and the table located at [/analyzed/README.md](./analyzed/README.md).
 
 ![JSON parsing mismatches](paper/figures/parsing_mismatches.png "JSON parsing mismatches")
 

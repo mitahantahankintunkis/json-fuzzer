@@ -294,7 +294,6 @@ pub fn analyze(_args: &crate::Args) {
                 //     continue;
                 // }
 
-                println!("{} {}", file_parser_name, file_config_name);
                 let result = FuzzingResult {
                     parser_name: file_parser_name.to_string(),
                     decoder: Decoder::new(Box::new(bytes)),

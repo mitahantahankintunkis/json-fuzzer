@@ -216,7 +216,7 @@ char* parse_jsmn(char* data, int json_size, char* query_key, char* buf, int buf_
 	}
 
 	int offset = 1;
-	char* ret = (char*)KEY_NOT_FOUND;
+	jsmntok_t* ret_val = NULL;
 
 	for (int i = 0; i < jsmn_tokens[0].size; ++i) {
 		jsmntok_t* key = &jsmn_tokens[offset++];
@@ -233,18 +233,20 @@ char* parse_jsmn(char* data, int json_size, char* query_key, char* buf, int buf_
 
 		int key_len = key->end - key->start;
 
-		if (key_len > (int)buf_size) {
+		if (key_len + 1 > (int)buf_size) {
 			return (char*)PARSE_ERROR;
 		}
 
 		memcpy(buf, data + key->start, key_len);
-		buf[key->start + key_len + 1] = 0;
+		buf[key_len] = 0;
 
-		if (std::strcmp(buf, query_key) != 0) {
-			continue;
+		if (std::strcmp(buf, query_key) == 0) {
+			ret_val = value;
 		}
+	}
 
-		int j = value->start;
+	if (ret_val != NULL) {
+		int j = ret_val->start;
 		char first = data[j];
 
 		if (first == 'n') {
@@ -254,14 +256,14 @@ char* parse_jsmn(char* data, int json_size, char* query_key, char* buf, int buf_
 		} else if (first == 't') {
 			snprintf((char*)buf, buf_size, "true");
 		} else {
-			int val_len = value->end - j;
+			int val_len = ret_val->end - j;
 
 			if (val_len > (int)buf_size) {
 				return (char*)PARSE_ERROR;
 			}
 
 			memcpy(buf, data + j, val_len);
-			buf[j + value->end + 1] = 0;
+			buf[j + ret_val->end + 1] = 0;
 
 			try {
 				double d = std::stod(buf);
@@ -273,10 +275,10 @@ char* parse_jsmn(char* data, int json_size, char* query_key, char* buf, int buf_
 			}
 		}
 
-		ret = buf;
+		return buf;
 	}
 
-	return ret;
+	return (char*)PARSE_ERROR;
 }
 
 
