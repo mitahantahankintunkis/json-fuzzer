@@ -28,6 +28,7 @@
 #include "lib/cJSON.h"
 #include "lib/frozen.h"
 #include "lib/jsmn.h"
+#include "lib/nlohmann/json.hpp"
 
 #include "json_parser.h"
 #include "json_c_wrapper.h"
@@ -331,6 +332,25 @@ char* parse_boost(char* data, int json_size, char* key, char* buf, int buf_size)
 }
 
 
+char* parse_nlohmann(char* data, int json_size, char* key, char* buf, int buf_size) {
+	try {
+		nlohmann::json parsed = nlohmann::json::parse(data);
+
+		if (!parsed.contains(key)) {
+			return (char*)KEY_NOT_FOUND;
+		}
+
+		if (parsed[key].is_number()) {
+			snprintf((char*)buf, buf_size, "%g", (double)parsed[key]);
+			return buf;
+		}
+	} catch(const std::exception& e) {
+	}
+
+	return (char*)PARSE_ERROR;
+}
+
+
 int main(int argc, char* argv[]) {
     int parser_number = 0;
 
@@ -381,6 +401,10 @@ int main(int argc, char* argv[]) {
         case 9:
             parser_name = (char*)"cpp_boost";
 			parser_fn = &parse_boost;
+            break;
+        case 10:
+            parser_name = (char*)"cpp_nlohmann";
+			parser_fn = &parse_nlohmann;
             break;
         default:
             return 1;

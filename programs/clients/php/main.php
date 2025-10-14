@@ -52,6 +52,7 @@ while (true) {
 
     if ($socket) {
         stream_set_blocking($socket, true);
+		stream_set_timeout($socket, 999999);
         break;
     }
 

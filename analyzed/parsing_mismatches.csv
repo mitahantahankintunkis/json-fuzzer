@@ -17,6 +17,8 @@ c_cjson	cpp_boost	{"q":2,"q":3}	2	3
 c_cjson	cpp_boost	{"q":3,"q":2}	3	2
 c_cjson	cpp_modsecurity	{"q":2,"q":3}	2	3
 c_cjson	cpp_modsecurity	{"q":3,"q":2}	3	2
+c_cjson	cpp_nlohmann	{"q":2,"q":3}	2	3
+c_cjson	cpp_nlohmann	{"q":3,"q":2}	3	2
 c_cjson	cpp_poco	{"q":2,"q":3}	2	3
 c_cjson	cpp_poco	{"q":3,"q":2}	3	2
 c_cjson	dotnet_std	{"q":2,"q":3}	2	3
@@ -68,6 +70,7 @@ c_frozen	clojure_cheshire	{"q":2,"\u0071":3}	2	3
 c_frozen	clojure_jsonista	{"q":2,"\xffq":3}	2	3
 c_frozen	cpp_boost	{"q":2,"\u0071":3}	2	3
 c_frozen	cpp_modsecurity	{"q":2\v,"q":3}	2	3
+c_frozen	cpp_nlohmann	{"q":2,"\u0071":3}	2	3
 c_frozen	cpp_poco	{"q":2,"\u0071":3}	2	3
 c_frozen	dotnet_std	{"q":2,"\u0071":3}	2	3
 c_frozen	go_buger_jsonparser	{"q":3,"q":2}	2	3
@@ -115,6 +118,7 @@ c_jsmn	clojure_cheshire	{"q":2,"\u0071":3}	2	3
 c_jsmn	clojure_jsonista	{"q":2,"\xffq":3}	2	3
 c_jsmn	cpp_boost	{"q":2,"\u0071":3}	2	3
 c_jsmn	cpp_modsecurity	{"q":2,"\u0071":3}	2	3
+c_jsmn	cpp_nlohmann	{"q":2,"\u0071":3}	2	3
 c_jsmn	cpp_poco	{"q":2,"\u0071":3}	2	3
 c_jsmn	dotnet_std	{"q":2,"\u0071":3}	2	3
 c_jsmn	go_buger_jsonparser	{"q":3,"q":2}	2	3
@@ -149,6 +153,7 @@ c_json_c	clojure_jsonista	{"q":2,"\xffq":3}	2	3
 c_json_c	clojure_jsonista	{"q":2,"q\u0000":3}	3	2
 c_json_c	cpp_boost	{"q":2,"q\u0000":3}	3	2
 c_json_c	cpp_modsecurity	{"q":2,"q\u0000":3}	3	2
+c_json_c	cpp_nlohmann	{"q":2,"q\u0000":3}	3	2
 c_json_c	dotnet_std	{"q":2,"q\u0000":3}	3	2
 c_json_c	go_buger_jsonparser	{"q":3,"q":2}	2	3
 c_json_c	go_buger_jsonparser	{"q":2,"q":3}	3	2
@@ -200,6 +205,8 @@ c_mjson	cpp_boost	{"q":2,"q":3}	2	3
 c_mjson	cpp_boost	{"q":3,"q":2}	3	2
 c_mjson	cpp_modsecurity	{"q":2,"q":3}	2	3
 c_mjson	cpp_modsecurity	{"q":3,"q":2}	3	2
+c_mjson	cpp_nlohmann	{"q":2,"q":3}	2	3
+c_mjson	cpp_nlohmann	{"q":3,"q":2}	3	2
 c_mjson	cpp_poco	{"q":2,"q":3}	2	3
 c_mjson	cpp_poco	{"q":3,"q":2}	3	2
 c_mjson	dotnet_std	{"q":2,"q":3}	2	3
@@ -293,6 +300,17 @@ cpp_modsecurity	go_tidwall_gjson_safe	{"q":3,"q":2}	2	3
 cpp_modsecurity	go_tidwall_gjson_safe	{"q":2,"q":3}	3	2
 cpp_modsecurity	go_valyala_fastjson	{"q":3,"q":2}	2	3
 cpp_modsecurity	go_valyala_fastjson	{"q":2,"q":3}	3	2
+cpp_nlohmann	cpp_poco	{"q":2,"q\u0000":3}	2	3
+cpp_nlohmann	go_buger_jsonparser	{"q":3,"q":2}	2	3
+cpp_nlohmann	go_buger_jsonparser	{"q":2,"q":3}	3	2
+cpp_nlohmann	go_json_iterator	{"q":2,"Q":3}	2	3
+cpp_nlohmann	go_std	{"q":2,"Q":3}	2	3
+cpp_nlohmann	go_tidwall_gjson	{"q":3,"q":2}	2	3
+cpp_nlohmann	go_tidwall_gjson	{"q":2,"q":3}	3	2
+cpp_nlohmann	go_tidwall_gjson_safe	{"q":3,"q":2}	2	3
+cpp_nlohmann	go_tidwall_gjson_safe	{"q":2,"q":3}	3	2
+cpp_nlohmann	go_valyala_fastjson	{"q":3,"q":2}	2	3
+cpp_nlohmann	go_valyala_fastjson	{"q":2,"q":3}	3	2
 cpp_poco	dotnet_std	{"q":2,"q\u0000":3}	3	2
 cpp_poco	go_buger_jsonparser	{"q":3,"q":2}	2	3
 cpp_poco	go_buger_jsonparser	{"q":2,"q":3}	3	2

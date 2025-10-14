@@ -48,6 +48,7 @@ def main():
         'c_jsmn': 'https://github.com/zserge/jsmn',
         'dotnet_std': 'https://learn.microsoft.com/en-us/dotnet/api/system.text.json?view=net-9.0',
         'c_json_c': 'https://github.com/json-c/json-c',
+        'cpp_nlohmann': 'https://github.com/nlohmann/json',
     }
 
     with open('../analyzed/parsing_mismatches.csv', 'r') as f:
