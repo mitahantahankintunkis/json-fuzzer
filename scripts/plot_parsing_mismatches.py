@@ -19,8 +19,8 @@ def main():
         'c_jansson': 'https://github.com/akheron/jansson',
         'c_json_parser': 'https://github.com/json-parser/json-parser',
         'c_mjson': 'https://github.com/cesanta/mjson/tree/master',
-        'clojure_cheshire': 'https://github.com/dakrone/cheshire/tree/master',
-        'clojure_jsonista': 'https://github.com/metosin/jsonista',
+        # 'clojure_cheshire': 'https://github.com/dakrone/cheshire/tree/master',
+        # 'clojure_jsonista': 'https://github.com/metosin/jsonista',
         'cpp_modsecurity': 'https://github.com/owasp-modsecurity/ModSecurity',
         'go_buger_jsonparser': 'https://github.com/buger/jsonparser',
         'go_francoispqt_gojay': 'https://github.com/francoispqt/gojay',
@@ -159,13 +159,13 @@ def main():
         print('    \\centering')
         print('    \\caption{JSON libraries}')
         print('    \\label{tbl:parsers}')
-        print('    \\begin{tabular}{ll}')
-        print('        Parser ID & Source URL \\\\')
+        print('    \\begin{tabular}{lll}')
+        print('        Parser ID & Source URL & Version \\\\')
         print('        \\hline \\\\')
 
         for (key, url) in parser_lookup.items():
             id = key.replace('_', '\\_')
-            print(f'        \\parser{{{id}}} & \\url{{{url}}} \\\\')
+            print(f'        \\parser{{{id}}} & \\url{{{url}}} & v.TODO \\\\')
 
         print('        &')
         print('    \\end{tabular}')

@@ -27,12 +27,13 @@ local PARSE_ERROR = "PARSE_ERROR"
 -- end
 
 local function parse_cjson(data, key)
-	local str = data:gsub("%z+$", "")
-	local parsed, _ = cjson.decode(str)
+	-- local str = data:gsub("%z+$", "")
+	-- print(str, key)
+	local parsed, _ = cjson.decode(data)
 	if not parsed then
 		return PARSE_ERROR
 	end
-	if parsed[key] ~= nil then
+	if type(parsed) == "table" and parsed[key] ~= nil then
 		return tostring(parsed[key])
 	else
 		return KEY_NOT_FOUND
@@ -71,46 +72,57 @@ local function main()
 	s:send(name_buffer)
 
 	while true do
-		-- Read header (8 bytes)
-		local header, _ = s:receive(10)
+		local header, _ = s:receive(9)
 		if not header then
 			return
 		end
 
-		-- Unpack: <IHH (little-endian: u32, u16, u32)
-		local h1, h2, h3, h4, h5, h6 = header:byte(5, 10)
-		local payload_size = h1 + h2 * 256
-		local batch_size = h3 + h4 * 256 + h5 * 65536 + h6 * 16777216
+		local h1, h2, h3, h4 = header:byte(1, 4)
+		local input_buffer_size = h1 + h2 * 256 + h3 * 65536 + h4 * 16777216
+		h1, h2, h3, h4 = header:byte(6, 9)
+		local key_len = h1 + h2 * 256 + h3 * 65536 + h4 * 16777216
+		local key, _, _ = s:receive(key_len)
 
-		local total_payload = batch_size * payload_size
-
-		-- Read JSON payloads
-		local payload, _, _ = s:receive(total_payload)
-		if not payload then
+		local read_buffer, _, _ = s:receive(input_buffer_size)
+		if not read_buffer then
 			return
 		end
 
-		local byte_offset = 5
+		local read_offset = 1
+		local write_offset = 5
 		local parts = {}
-		table.insert(parts, "\0\0\0\0") -- reserve 4 bytes
+		table.insert(parts, "\0\0\0\0")
 
-		for batch = 0, batch_size - 1 do
-			local start = batch * payload_size + 1
-			local stop = start + payload_size - 1
-			local data = payload:sub(start, stop)
+		while read_offset <= input_buffer_size do
+			local s1, s2 = read_buffer:byte(read_offset, read_offset + 1)
+			local json_size = s1 + s2 * 256
+			read_offset = read_offset + 2
 
-			local message = parser_fn(data, "q")
+			local json = string.sub(read_buffer, read_offset, read_offset + json_size - 1)
+			read_offset = read_offset + json_size
 
-			-- message length (u16 LE)
+			local start_time = os.clock()
+			local message = parser_fn(json, key)
+			local end_time = os.clock()
+			local micros = math.floor((end_time - start_time) * 1000000)
+
+			local micros_bytes = string.char(
+				micros % 256,
+				math.floor(micros / 256) % 256,
+				math.floor(micros / 65536) % 256,
+				math.floor(micros / 16777216) % 256
+			)
+			table.insert(parts, micros_bytes)
+			write_offset = write_offset + 4
+
 			local len = #message
 			local size_bytes = string.char(len % 256, math.floor(len / 256))
 			table.insert(parts, size_bytes)
 			table.insert(parts, message)
-			byte_offset = byte_offset + 2 + len
+			write_offset = write_offset + 2 + len
 		end
 
-		-- Write payload size into first 4 bytes
-		local size = byte_offset - 5
+		local size = write_offset - 5
 		local size_bytes = string.char(
 			size % 256,
 			math.floor(size / 256) % 256,

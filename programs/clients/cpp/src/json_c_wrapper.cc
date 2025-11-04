@@ -7,7 +7,7 @@
 json_tokener* tok = json_tokener_new();
 
 
-char* json_c_wrapper::parse_json_c(char* data, int json_size, char* key, char* buf, int buf_size) {
+char* json_c_wrapper::parse_json_c(char* data, int json_size, char* key, int key_size, char* buf, int buf_size) {
 	json_tokener_reset(tok);
 	json_object *jobj = json_tokener_parse_ex(tok, data, json_size);
 	enum json_tokener_error jerr = json_tokener_get_error(tok);

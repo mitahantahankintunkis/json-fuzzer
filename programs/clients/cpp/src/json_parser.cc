@@ -7,7 +7,7 @@
 #define KEY_NOT_FOUND "KEY_NOT_FOUND"
 #define PARSE_ERROR "PARSE_ERROR"
 
-char* parse_json_parser(char* data, int json_size, char* key, char* buf, int buf_size) {
+char* parse_json_parser(char* data, int json_size, char* key, int key_size, char* buf, int buf_size) {
 	unsigned int key_len = 1;
     json_value* value = json_parse(data, strlen(data));
 
@@ -18,7 +18,7 @@ char* parse_json_parser(char* data, int json_size, char* key, char* buf, int buf
         for (unsigned int i = 0; i < value->u.object.length; ++i) {
             json_object_entry entry = value->u.object.values[i];
 
-            if (entry.name_length == key_len && strncmp(entry.name, key, entry.name_length) == 0) {
+            if (entry.name_length == key_len && strncmp(entry.name, key, key_len) == 0) {
                 matched_entry = &value->u.object.values[i];
             }
         }

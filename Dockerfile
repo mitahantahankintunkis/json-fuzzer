@@ -1,8 +1,25 @@
-# Rust - fuzzer
-FROM rust:latest AS fuzzer
+# Rust - fuzzer dependency caching
+FROM rust:latest AS fuzzer-base
+RUN cargo install cargo-chef --version ^0.1
+
+FROM fuzzer-base AS fuzzer-planner
 WORKDIR /app
-COPY programs/fuzzer ./fuzzer
-RUN cargo install --path fuzzer
+# COPY . .
+# RUN cargo install --path fuzzer
+COPY programs/fuzzer .
+RUN cargo chef prepare --recipe-path recipe.json
+
+# Rust - fuzzer
+FROM fuzzer-base AS fuzzer
+WORKDIR /app
+
+COPY --from=fuzzer-planner /app/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
+
+COPY programs/fuzzer .
+RUN cargo install --path .
+# COPY programs/fuzzer ./fuzzer
+# RUN cargo install --path fuzzer
 
 # Rust - test server
 FROM rust:latest AS test-server
@@ -43,21 +60,34 @@ RUN go build -v -o /usr/local/bin/go-client main.go
 
 
 # JVM
-FROM clojure:lein AS jvm
+FROM maven:3.9.11 AS jvm
 
-# WORKDIR /app
+WORKDIR /app
+
+# Cache dependencies
+COPY ./programs/clients/java/JavaClient/pom.xml ./pom.xml
+RUN mvn dependency:go-offline -B
+
+COPY ./programs/clients/java/JavaClient/src ./src
+RUN mvn clean compile assembly:single && \
+	cp target/java-client-jar-with-dependencies.jar java-client.jar && \
+	rm -rf target
+
+# FROM clojure:lein AS jvm
 #
-# COPY ./programs/clients/clojure/app/ .
-
-# RUN lein uberjar && \
-# 	mv target/uberjar/app-0.1.0-SNAPSHOT-standalone.jar ./clojure-client.jar
-
-RUN mkdir -p /usr/src/app
-WORKDIR /usr/src/app
-COPY ./programs/clients/clojure/app/project.clj /usr/src/app/
-RUN lein deps
-COPY ./programs/clients/clojure/app/ /usr/src/app
-RUN mv "$(lein uberjar | sed -n 's/^Created \(.*standalone\.jar\)/\1/p')" ./clojure-client.jar
+# # WORKDIR /app
+# #
+# # COPY ./programs/clients/clojure/app/ .
+#
+# # RUN lein uberjar && \
+# # 	mv target/uberjar/app-0.1.0-SNAPSHOT-standalone.jar ./clojure-client.jar
+#
+# RUN mkdir -p /usr/src/app
+# WORKDIR /usr/src/app
+# COPY ./programs/clients/clojure/app/project.clj /usr/src/app/
+# RUN lein deps
+# COPY ./programs/clients/clojure/app/ /usr/src/app
+# RUN mv "$(lein uberjar | sed -n 's/^Created \(.*standalone\.jar\)/\1/p')" ./clojure-client.jar
 
 
 # C++
@@ -89,7 +119,6 @@ RUN cmake .. && make && cp cpp_client /usr/local/bin/cpp-client
 FROM mcr.microsoft.com/dotnet/sdk:9.0@sha256:3fcf6f1e809c0553f9feb222369f58749af314af6f063f389cbd2f913b4ad556 AS dotnet
 WORKDIR /app
 
-# Copy everything
 COPY ./programs/clients/dotnet/ ./
 RUN dotnet restore
 RUN dotnet publish -o out
@@ -122,6 +151,20 @@ COPY ./programs/clients/python/requirements.txt ./requirements.txt
 RUN pip3 install -Ur requirements.txt
 
 
+# Radamsa
+FROM ubuntu:latest AS radamsa
+
+WORKDIR /app
+
+RUN --mount=target=/var/lib/apt,type=cache,sharing=locked \
+    --mount=target=/var/cache/apt,type=cache,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+	apt-get update && \
+	apt-get install -y gcc make git wget
+
+RUN git clone https://gitlab.com/akihe/radamsa.git && cd radamsa && make && cp bin/radamsa /usr/local/bin/radamsa
+
+
 # Final
 FROM ubuntu:latest
 
@@ -133,7 +176,7 @@ RUN --mount=target=/var/lib/apt,type=cache,sharing=locked \
     --mount=target=/var/cache/apt,type=cache,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
 	apt-get update && \
-	apt-get install -y lua5.4 luarocks openjdk-21-jre php ruby python3 python3-pip python3.12-venv \
+	apt-get install -y lua5.4 luarocks openjdk-21-jre php ruby python3 python3-pip python3.12-venv valgrind \
 			libyajl-dev dotnet-runtime-8.0 libpoco-dev
 
 	# python3 -m venv venv
@@ -169,16 +212,20 @@ COPY --from=test-server /usr/local/cargo/bin/test-server /usr/local/bin/
 COPY --from=rust-client /usr/local/cargo/bin/rust-client /usr/local/bin/
 COPY --from=cpp /usr/local/bin/cpp-client /usr/local/bin/
 COPY --from=go /usr/local/bin/go-client /usr/local/bin/
-COPY --from=jvm /usr/src/app/clojure-client.jar .
+#COPY --from=jvm /usr/src/app/clojure-client.jar .
+ COPY --from=jvm /app/java-client.jar .
 COPY --from=dotnet /app/out ./dotnet_client
+COPY --from=radamsa /usr/local/bin/radamsa /usr/local/bin/
 
+# COPY ./programs/clients/java/JavaClient/java-client.jar java-client.jar
 COPY ./programs/clients/lua/main.lua .
 COPY ./programs/clients/php/main.php .
 COPY ./programs/clients/ruby/main.rb .
 COPY ./programs/test.sh .
 COPY ./programs/run.sh .
-COPY ./programs/payloads.toml .
-COPY ./programs/payloads_dos.toml .
+# COPY ./programs/payloads.toml .
+COPY ./programs/payloads.csv .
+# COPY ./programs/payloads_dos.toml .
 COPY ./scripts/analyze.sh .
 
 # Rust

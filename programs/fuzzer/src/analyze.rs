@@ -1,23 +1,27 @@
+#![allow(unused)]
+use crossbeam_channel::Receiver;
+use crossbeam_channel::Sender;
+use rusqlite::Connection;
+
 use crate::compression::*;
-use crate::payload::*;
+use crate::fuzz::*;
+use crate::server::Job;
+use crate::server::ParsingResult;
 use crate::util::byte_to_string;
 use std::collections::HashMap;
-// use regex::Regex;
-// use std::hash::DefaultHasher;
+use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
-// use std::rc::Rc;
-// use std::path::Path;
-// use std::ops::Range;
+use std::thread::spawn;
+use std::thread::JoinHandle;
 
 struct FuzzingResult {
     parser_name: String,
-    // test_name: String,
     decoder: Decoder,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Vulnerability {
-    payload: String,
+    testcase: TestCase,
     parser_0_name: String,
     parser_1_name: String,
     parser_0_output: String,
@@ -25,7 +29,14 @@ struct Vulnerability {
     hash: u32,
 }
 
-fn vuln_hash(name0: &str, name1: &str, out0: &str, out1: &str) -> u32 {
+fn vuln_hash(
+    name0: &str,
+    name1: &str,
+    out0: &str,
+    out1: &str,
+    testcase: &TestCase,
+    fuzzer_name: &str,
+) -> u32 {
     // let mut hasher = DefaultHasher::new();
     // name0.hash(&mut hasher);
     // name1.hash(&mut hasher);
@@ -33,19 +44,7 @@ fn vuln_hash(name0: &str, name1: &str, out0: &str, out1: &str) -> u32 {
     // out1.hash(&mut hasher);
     // hasher.finish()
 
-    // djb2 in C++
-    // unsigned long
-    // hash(unsigned char *str)
-    // {
-    //     unsigned long hash = 5381;
-    //     int c;
-    //
-    //     while (c = *str++)
-    //         hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
-    //
-    //     return hash;
-    // }
-
+    // djb2 hashing algorithm
     let mut hash: u32 = 5381;
 
     for byte in name0.bytes() {
@@ -64,18 +63,33 @@ fn vuln_hash(name0: &str, name1: &str, out0: &str, out1: &str) -> u32 {
         hash = ((hash << 5) + hash) + byte as u32;
     }
 
+    for byte in testcase.json.bytes() {
+        hash = ((hash << 5) + hash) + byte as u32;
+    }
+
+    for byte in fuzzer_name.bytes() {
+        hash = ((hash << 5) + hash) + byte as u32;
+    }
+
     hash
 }
 
 impl Vulnerability {
-    fn new(payload: &str, name0: &str, name1: &str, out0: &str, out1: &str) -> Self {
+    fn new(
+        name0: &str,
+        name1: &str,
+        out0: &str,
+        out1: &str,
+        testcase: TestCase,
+        fuzzer_name: &str,
+    ) -> Self {
         Vulnerability {
-            payload: payload.to_string(),
             parser_0_name: name0.to_string(),
             parser_1_name: name1.to_string(),
             parser_0_output: out0.to_string(),
             parser_1_output: out1.to_string(),
-            hash: vuln_hash(name0, name1, out0, out1),
+            hash: vuln_hash(name0, name1, out0, out1, &testcase, fuzzer_name),
+            testcase,
         }
     }
 }
@@ -98,21 +112,18 @@ impl PartialEq for Vulnerability {
 impl Eq for Vulnerability {}
 
 fn analyze_results(
-    payload_config: PayloadConfig,
+    testcase: &TestCase,
+    fuzzer: &mut Box<dyn Fuzzer>,
     results: &Vec<FuzzingResult>,
-) -> Vec<(u32, Vulnerability)> {
+) -> (Vec<(u32, Vulnerability)>, usize) {
     if results.len() == 0 {
-        return Vec::new();
-        // return HashMap::new();
+        return (Vec::new(), 0);
     }
 
     let mut vulnerabilities: Vec<(u32, Vulnerability)> = Vec::new();
-    // let mut vulnerabilities: HashMap<u32, Vulnerability> = HashMap::new();
-
-    let mut payload: Payload = payload_config.clone().into();
 
     if results.len() == 0 {
-        panic!("No results for {}", payload_config.name);
+        panic!("No results for {}", fuzzer.id());
     }
 
     let mut payload_str = String::with_capacity(64);
@@ -132,6 +143,10 @@ fn analyze_results(
             .next_message_with_state(&mut decoder_states[i]);
     }
 
+    let mut total_bytes = 0;
+    let mut errs: HashSet<String> = HashSet::new();
+    let mut fuzzed = vec![0u8; 1 << 16];
+
     loop {
         parser_outputs.clear();
         payload_str.clear();
@@ -143,36 +158,43 @@ fn analyze_results(
 
             match res {
                 Some(r) => {
+                    total_bytes += r.len();
                     if r != "PARSE_ERROR" && r != "KEY_NOT_FOUND" {
                         parser_outputs.push((&result.parser_name, r));
                     }
                 }
                 None => {
-                    panic!(
-                        "No next message {} {} {}",
-                        result.parser_name,
-                        payload_config.name,
-                        payload
-                            .into_iter()
-                            .map(|c| byte_to_string(c))
-                            .collect::<Vec<String>>()
-                            .join(""),
-                    );
+                    let key = format!("{} {} {}", result.parser_name, fuzzer.id(), testcase.json);
+                    if !errs.contains(&key) {
+                        let n = fuzzer.copy_to_slice(&mut fuzzed).unwrap();
+                        for byte in &fuzzed[0..n] {
+                            payload_str.push_str(&byte_to_string(*byte));
+                        }
+
+                        errs.insert(key);
+                        eprintln!(
+                            "No next message for {} {} {} {}",
+                            result.parser_name,
+                            fuzzer.id(),
+                            testcase.json,
+                            fuzzed[0..n]
+                                .iter()
+                                .map(|c| byte_to_string(*c))
+                                .collect::<Vec<String>>()
+                                .join(""),
+                        );
+                    }
                 }
             }
         }
 
         if parser_outputs.len() == 0 {
-            if payload.advance().is_err() {
+            if fuzzer.advance().is_err() {
                 break;
             }
 
             continue;
         }
-
-        // if parser_output.len() != results.len() {
-        //     break;
-        // }
 
         let first_value = &parser_outputs[0];
         let mut equal = true;
@@ -186,7 +208,7 @@ fn analyze_results(
         }
 
         if equal {
-            if payload.advance().is_err() {
+            if fuzzer.advance().is_err() {
                 break;
             }
             continue;
@@ -207,21 +229,34 @@ fn analyze_results(
                 }
 
                 if payload_str.len() == 0 {
-                    for byte in payload.into_iter() {
-                        payload_str.push_str(&byte_to_string(byte));
+                    let n = fuzzer.copy_to_slice(&mut fuzzed).unwrap();
+                    for byte in &fuzzed[0..n] {
+                        payload_str.push_str(&byte_to_string(*byte));
                     }
                 }
 
-                let hash = vuln_hash(&name0, &name1, output0, output1);
+                let testcase = TestCase::new(
+                    payload_str.clone(),
+                    testcase.key.clone(),
+                    Some(testcase.clone()),
+                );
+
+                let hash = vuln_hash(&name0, &name1, output0, output1, &testcase, &fuzzer.id());
                 let mut found = false;
 
                 for i in 0..vulnerabilities.len() {
                     let best_vuln = &vulnerabilities[i];
 
                     if hash == best_vuln.0 {
-                        if payload_str.len() < best_vuln.1.payload.len() {
-                            let vuln =
-                                Vulnerability::new(&payload_str, &name0, &name1, output0, output1);
+                        if payload_str.len() < best_vuln.1.testcase.json.len() {
+                            let vuln = Vulnerability::new(
+                                &name0,
+                                &name1,
+                                output0,
+                                output1,
+                                testcase.clone(),
+                                &fuzzer.id(),
+                            );
                             vulnerabilities[i] = (hash, vuln);
                         }
 
@@ -231,7 +266,14 @@ fn analyze_results(
                 }
 
                 if !found {
-                    let vuln = Vulnerability::new(&payload_str, &name0, &name1, output0, output1);
+                    let vuln = Vulnerability::new(
+                        &name0,
+                        &name1,
+                        output0,
+                        output1,
+                        testcase.clone(),
+                        &fuzzer.id(),
+                    );
                     vulnerabilities.push((hash, vuln));
                 }
 
@@ -252,47 +294,43 @@ fn analyze_results(
             }
         }
 
-        if payload.advance().is_err() {
+        if fuzzer.advance().is_err() {
             break;
         }
     }
 
-    vulnerabilities
+    (vulnerabilities, total_bytes)
 }
 
-pub fn analyze(_args: &crate::Args) {
+fn analyze(res: ParsingResult, vuln_mat: &mut HashSet<(String, String)>) -> Vec<Vulnerability> {
     let mut vulns: HashMap<u32, Vulnerability> = HashMap::new();
+    let mut total_bytes = 0;
 
-    let config = load_payloads();
+    let digest = format!("{:x}", md5::compute(&res.testcase.json))[0..8].to_string();
 
-    for payload_config in &config.payloads {
+    for mut fuzzer in &mut create_fuzzers(&res.testcase) {
         let files = std::fs::read_dir("data/").expect("Could not open 'data/'");
         let mut results: Vec<FuzzingResult> = Vec::new();
 
         for file in files {
             if let Ok(f) = file {
                 let file_name: String = f.file_name().to_str().unwrap().to_string();
-                let split: Vec<&str> = file_name.splitn(2, '-').collect();
+                let split: Vec<&str> = file_name.split(';').collect();
 
-                if split.len() != 2 {
+                if split.len() != 4 {
                     eprintln!("Malformed filename '{}'", file_name);
                     continue;
                 }
 
                 let file_parser_name = &split[0];
-                let file_config_name = &split[1][0..split[1].len() - 4];
+                let file_fuzzer_name = &split[1];
+                let file_json_id = &split[2];
 
-                if file_config_name != payload_config.name {
+                if *file_fuzzer_name != fuzzer.id() || *file_json_id != digest {
                     continue;
                 }
 
                 let bytes = std::fs::read(f.path()).expect("Could not read file");
-
-                // TODO - remove
-                // if bytes.len() >= 10_000_000 {
-                //     // println!("Skipping {} due to size", file_name);
-                //     continue;
-                // }
 
                 let result = FuzzingResult {
                     parser_name: file_parser_name.to_string(),
@@ -304,11 +342,13 @@ pub fn analyze(_args: &crate::Args) {
         }
 
         results.sort_by(|a, b| a.parser_name.cmp(&b.parser_name));
+        let (res, n) = analyze_results(&res.testcase, &mut fuzzer, &mut results);
+        total_bytes += n;
 
-        for (hash, vuln) in analyze_results(payload_config.clone(), &mut results) {
+        for (hash, vuln) in res {
             match vulns.get(&hash) {
                 Some(best_vuln) => {
-                    if vuln.payload.len() < best_vuln.payload.len() {
+                    if vuln.testcase.json.len() < best_vuln.testcase.json.len() {
                         vulns.insert(hash, vuln);
                     }
                 }
@@ -319,7 +359,12 @@ pub fn analyze(_args: &crate::Args) {
         }
     }
 
-    let mut vulns_vec: Vec<&Vulnerability> = vulns.iter().map(|(_, v)| v).collect();
+    // eprintln!(
+    //     "Analyzed {} gigabytes of parsing results",
+    //     total_bytes / 1000_000_000
+    // );
+
+    let mut vulns_vec: Vec<Vulnerability> = vulns.iter().map(|(_, v)| v.clone()).collect();
 
     vulns_vec.sort_by_key(|v| {
         (
@@ -330,14 +375,136 @@ pub fn analyze(_args: &crate::Args) {
         )
     });
 
-    for vuln in vulns_vec {
-        println!(
-            "{}\t{}\t{}\t{}\t{}",
-            vuln.parser_0_name,
-            vuln.parser_1_name,
-            vuln.payload,
-            vuln.parser_0_output,
-            vuln.parser_1_output
-        );
+    vulns_vec
+}
+
+pub struct Analyzer {
+    pub handle: JoinHandle<()>,
+}
+
+impl Analyzer {
+    pub fn new(rx: Receiver<ParsingResult>, tx: Sender<Job>) -> Self {
+        let db_conn = Connection::open("analyzed/db.sqlite").unwrap();
+        Analyzer::init_db(&db_conn);
+
+        let handle = spawn(move || {
+            let mut vuln_mat: HashSet<(String, String)> = HashSet::new();
+
+            while let Ok(res) = rx.recv() {
+                let micros = match res.times.last() {
+                    Some(t) => t.duration,
+                    None => 0,
+                };
+
+                println!(
+                    "Analyzer received: {} from {} ({}us - {}us)",
+                    res.testcase,
+                    res.client_name,
+                    micros,
+                    match res.times.first() {
+                        Some(t) => t.duration,
+                        None => 0,
+                    }
+                );
+
+                if let Some(last) = res.times.last() {
+                    let mut testcase = last.testcase.clone();
+                    testcase.weight = 1.0 / (last.duration as f64) + testcase.depth as f64;
+
+                    if last.duration > 0 && testcase.depth < 10 {
+                        tx.send(Job {
+                            testcase: testcase,
+                            clients: vec![res.client_name.clone()],
+                        })
+                        .unwrap();
+                    }
+                }
+
+                let vulns = analyze(res, &mut vuln_mat);
+
+                for vuln in &vulns {
+                    vuln_mat.insert((vuln.parser_0_name.clone(), vuln.parser_1_name.clone()));
+                    vuln_mat.insert((vuln.parser_1_name.clone(), vuln.parser_0_name.clone()));
+                    db_conn.execute(
+                        "INSERT INTO results VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        (
+                            &vuln.parser_0_name,
+                            &vuln.parser_1_name,
+                            &vuln.testcase.json,
+                            &vuln.testcase.key,
+                            &vuln.parser_0_output,
+                            &vuln.parser_1_output,
+                        ),
+                    );
+                    db_conn.execute(
+                        "INSERT INTO results VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                        (
+                            &vuln.parser_1_name,
+                            &vuln.parser_0_name,
+                            &vuln.testcase.json,
+                            &vuln.testcase.key,
+                            &vuln.parser_1_output,
+                            &vuln.parser_0_output,
+                        ),
+                    );
+                }
+
+                for vuln in vulns {
+                    tx.send(Job {
+                        testcase: vuln.testcase.clone(),
+                        clients: vec![],
+                    })
+                    .unwrap();
+                    break;
+                }
+            }
+        });
+
+        Analyzer { handle }
+    }
+
+    fn init_db(conn: &Connection) {
+        if !conn.table_exists(None, "results").unwrap() {
+            conn.execute(
+                "CREATE TABLE results (
+                        client0 TEXT NOT NULL,
+                        client1 TEXT NOT NULL,
+                        json TEXT NOT NULL,
+                        key TEXT NOT NULL,
+                        output0 TEXT NOT NULL,
+                        output1 TEXT NOT NULL
+                    )",
+                (),
+            )
+            .unwrap();
+        }
+
+        if !conn.table_exists(None, "testcases").unwrap() {
+            conn.execute(
+                "CREATE TABLE testcases (
+                        json TEXT NOT NULL,
+                        key TEXT NOT NULL,
+                        weight REAL NOT NULL,
+                        depth INTEGER NOT NULL,
+                        parent INTEGER,
+                        FOREIGN KEY (parent) REFERENCES testcases(rowid)
+                    )",
+                (),
+            )
+            .unwrap();
+        }
+
+        if !conn.table_exists(None, "parsing_times").unwrap() {
+            conn.execute(
+                "CREATE TABLE parsing_times (
+                        client TEXT NOT NULL,
+                        time REAL NOT NULL,
+                        testcase INTEGER NOT NULL,
+                        FOREIGN KEY (testcase) REFERENCES testcases(rowid)
+                    )",
+                (),
+            )
+            .unwrap();
+        }
     }
 }

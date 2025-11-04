@@ -1,3 +1,4 @@
+use clap::Parser;
 use regex::Regex;
 use rustyline;
 use std::io::{prelude::*, Error};
@@ -5,6 +6,13 @@ use std::net::{TcpListener, TcpStream};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::{Arc, RwLock};
 use std::thread;
+
+#[derive(Parser, Debug, Clone)]
+#[command(version, about, long_about = None)]
+struct Args {
+    #[arg(short, long, default_value = "q")]
+    key: String,
+}
 
 enum CombinedStream {
     Unix(UnixStream),
@@ -33,19 +41,21 @@ struct Client {
 }
 
 impl Client {
-    fn parse_json(&mut self, json: &[u8]) -> String {
-        let batch_size: u32 = 1;
-        let mut read_buffer: Box<Vec<u8>> = Box::new(vec![0; 1 << 16]);
-        let mut send_buffer: Box<Vec<u8>> = Box::new(vec![0; 1 << 16]);
+    fn parse_json(&mut self, json: &[u8], key: &str) -> (u32, String) {
+        let header_size = 9 + key.len();
 
-        send_buffer[0..4].copy_from_slice(&u32::try_from(1024).unwrap().to_le_bytes());
-        send_buffer[4..6].copy_from_slice(&u16::try_from(json.len()).unwrap().to_le_bytes());
-        send_buffer[6..10].copy_from_slice(&batch_size.to_le_bytes());
-        send_buffer[10..(10 + json.len())].copy_from_slice(json);
+        let mut send_buffer: Box<Vec<u8>> = Box::new(vec![0; header_size + json.len() + 2]);
+        let mut read_buffer: Box<Vec<u8>> = Box::new(vec![0; 1 << 18]);
 
-        self.stream
-            .write_all(&send_buffer[0..(10 + json.len())])
-            .expect("Write error");
+        send_buffer[0..4].copy_from_slice(&u32::try_from(json.len() + 2).unwrap().to_le_bytes());
+        send_buffer[5..9].copy_from_slice(&(key.len() as u32).to_le_bytes());
+        send_buffer[9..header_size].copy_from_slice(&key.bytes().collect::<Vec<u8>>());
+
+        send_buffer[header_size..header_size + 2]
+            .clone_from_slice(&(json.len() as u16).to_le_bytes());
+        send_buffer[header_size + 2..header_size + 2 + json.len()].copy_from_slice(json);
+
+        self.stream.write_all(&send_buffer).expect("Write error");
 
         // Read client response size
         self.stream
@@ -60,26 +70,33 @@ impl Client {
         }
 
         // Read client response
-        let mut byte_offset: usize = 4;
+        let mut read_offset: usize = 4;
         self.stream
-            .read_exact(&mut read_buffer[byte_offset..(byte_offset + batched_package_size)])
+            .read_exact(&mut read_buffer[read_offset..(read_offset + batched_package_size)])
             .expect("Read error");
 
+        let ns: u32 = u32::from_le_bytes(
+            read_buffer[read_offset..(read_offset + 4)]
+                .try_into()
+                .unwrap(),
+        );
+        read_offset += 4;
+
         let package_size: u16 = u16::from_le_bytes(
-            read_buffer[byte_offset..(byte_offset + 2)]
+            read_buffer[read_offset..(read_offset + 2)]
                 .try_into()
                 .unwrap(),
         );
 
-        byte_offset += 2;
-        let data: &[u8] = &read_buffer[byte_offset..(byte_offset + usize::from(package_size))];
+        read_offset += 2;
+        let data: &[u8] = &read_buffer[read_offset..(read_offset + usize::from(package_size))];
 
         let str = match std::str::from_utf8(data) {
             Ok(s) => s,
             Err(_) => "utf-8 parse error",
         };
 
-        return str.to_string();
+        return (ns, str.to_string());
     }
 }
 
@@ -115,6 +132,7 @@ fn handle_client(mut stream: CombinedStream, clients: Arc<RwLock<Vec<Client>>>) 
 }
 
 fn main() -> std::io::Result<()> {
+    let args = Args::parse();
     let clients: Arc<RwLock<Vec<Client>>> = Arc::new(RwLock::new(Vec::new()));
 
     // Listen for connections
@@ -159,8 +177,17 @@ fn main() -> std::io::Result<()> {
         println!("\x1b[22m");
 
         match line {
-            Ok(input_string) => {
+            Ok(mut input_string) => {
+                if input_string.len() == 0 {
+                    input_string = r#"{"q":1,"q":1234}"#.to_string();
+                }
+
                 reader.add_history_entry(input_string.clone()).unwrap();
+                let max_name_len = clients
+                    .read()
+                    .map(|c| c.iter().map(|c| c.name.len()).max())
+                    .unwrap()
+                    .unwrap();
 
                 match clients.write() {
                     Ok(mut c) => {
@@ -182,14 +209,16 @@ fn main() -> std::io::Result<()> {
 
                             json_bytes.extend_from_slice(json[prev..].as_bytes());
 
-                            let parsed = client.parse_json(&json_bytes);
+                            let (ns, parsed) = client.parse_json(&json_bytes, &args.key);
 
                             println!(
-                                "{}[\"q\"]{:spacing$} = {}",
+                                "{:4}ms {}[\"{}\"]{:spacing$} = {}",
+                                ns / 1000000,
                                 client.name,
+                                args.key,
                                 " ",
                                 parsed,
-                                spacing = 25 - client.name.len()
+                                spacing = max_name_len + 1 - client.name.len()
                             );
                         }
                     }

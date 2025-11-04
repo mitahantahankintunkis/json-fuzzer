@@ -1,12 +1,11 @@
 #![allow(unused)]
 use core::panic::PanicInfo;
-// use serde::Deserialize;
-// use serde_json::{Result, Value};
 use std::env;
 use std::io::prelude::*;
 use std::net::TcpStream;
 use std::os::unix::net::UnixStream;
 use std::process::exit;
+use std::time::Instant;
 
 #[macro_use]
 extern crate json;
@@ -54,9 +53,9 @@ fn main() -> std::io::Result<()> {
         0
     };
 
-    let name = match parser_number {
-        0 => "rust_serde",
-        1 => "rust_json",
+    let (name, parse_fn): (&str, fn(&[u8], &str, &Datatype) -> String) = match parser_number {
+        0 => ("rust_serde", parse_serde),
+        1 => ("rust_json", parse_json),
         _ => exit(1),
     };
 
@@ -81,53 +80,66 @@ fn main() -> std::io::Result<()> {
     let mut write_buffer: Box<Vec<u8>> = Box::new(Vec::new());
 
     loop {
-        let mut header = [0u8; 10];
+        let mut header = [0u8; 9];
 
         if stream.read_exact(&mut header).is_err() {
             return Ok(());
         }
 
-        let buffer_size = u32::from_le_bytes(header[0..4].try_into().unwrap()) as usize;
-        let payload_size = u16::from_le_bytes(header[4..6].try_into().unwrap()) as usize;
-        let batch_size = u32::from_le_bytes(header[6..10].try_into().unwrap()) as usize;
+        let input_buffer_size = u32::from_le_bytes(header[0..4].try_into().unwrap()) as usize;
+        // let datatype = header[4];
+        let key_len = u32::from_le_bytes(header[5..9].try_into().unwrap()) as usize;
 
-        // if read_buffer.len() != batch_size * payload_size {
-        if read_buffer.len() != buffer_size {
-            read_buffer = Box::new(vec![0; buffer_size]);
+        if read_buffer.len() <= std::cmp::max(input_buffer_size, key_len) {
+            read_buffer = Box::new(vec![0; std::cmp::max(input_buffer_size, key_len)]);
         }
 
-        if write_buffer.len() != buffer_size << 2 {
-            write_buffer = Box::new(vec![0; buffer_size << 2]);
+        if write_buffer.len() <= input_buffer_size << 2 {
+            write_buffer = Box::new(vec![0; input_buffer_size << 2]);
         }
 
-        match stream.read_exact(&mut read_buffer[0..batch_size * payload_size]) {
+        stream.read_exact(&mut read_buffer[0..key_len]).unwrap();
+        let key = String::from_utf8(read_buffer[0..key_len].to_vec())
+            .expect("Rust client: Key should be valid UTF-8");
+
+        match stream.read_exact(&mut read_buffer[0..input_buffer_size]) {
             Ok(()) => {
-                let mut byte_offset: usize = 4;
+                let mut read_offset = 0;
+                let mut write_offset: usize = 4;
 
-                for batch in 0..(batch_size as usize) {
-                    let data: &[u8] =
-                        &read_buffer[(batch * payload_size)..((batch + 1) * payload_size)];
+                while read_offset < input_buffer_size {
+                    let json_size = u16::from_le_bytes(
+                        read_buffer[read_offset..read_offset + 2]
+                            .try_into()
+                            .unwrap(),
+                    ) as usize;
+                    read_offset += 2;
 
-                    let message = match parser_number {
-                        0 => parse_serde(data, "q", &Datatype::Int),
-                        1 => parse_json(data, "q", &Datatype::Int),
-                        _ => exit(1),
-                    };
+                    let data: &[u8] = &read_buffer[read_offset..read_offset + json_size];
+                    read_offset += json_size;
 
-                    let size_buffer = (message.len() as u16).to_le_bytes();
-                    write_buffer[byte_offset..(byte_offset + 2)].copy_from_slice(&size_buffer);
-                    byte_offset += 2;
+                    let start = Instant::now();
+                    let message = parse_fn(data, &key, &Datatype::Int);
+                    let micros = start.elapsed().as_micros() as u32;
 
-                    write_buffer[byte_offset..(byte_offset + message.len())]
+                    write_buffer[write_offset..write_offset + 4]
+                        .copy_from_slice(&micros.to_le_bytes());
+                    write_offset += 4;
+
+                    write_buffer[write_offset..write_offset + 2]
+                        .copy_from_slice(&(message.len() as u16).to_le_bytes());
+                    write_offset += 2;
+
+                    write_buffer[write_offset..write_offset + message.len()]
                         .copy_from_slice(message.as_bytes());
-                    byte_offset += message.len();
+                    write_offset += message.len();
                 }
 
                 write_buffer[0..4]
-                    .copy_from_slice(&u32::try_from(byte_offset - 4).unwrap().to_le_bytes());
+                    .copy_from_slice(&u32::try_from(write_offset - 4).unwrap().to_le_bytes());
 
                 stream
-                    .write_all(&write_buffer[0..byte_offset])
+                    .write_all(&write_buffer[0..write_offset])
                     .expect("Write error");
             }
             Err(_e) => {

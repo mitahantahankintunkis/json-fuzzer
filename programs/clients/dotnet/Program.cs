@@ -9,12 +9,6 @@ class Program
 
     static int Main(string[] args)
     {
-        if (!BitConverter.IsLittleEndian)
-        {
-            Console.Out.Write("Dotnet client: Only works on litte endian machines");
-            return 1;
-        }
-
         int parserNumber = 0;
         if (args.Length == 1)
         {
@@ -59,49 +53,62 @@ class Program
             networkStream.Write(nameBytes, 0, nameBytes.Length);
             networkStream.Flush();
 
-            var headerBuf = new byte[10];
+            var headerBuf = new byte[9];
 
             while (true)
             {
                 try
                 {
-                    networkStream.ReadExactly(headerBuf, 0, 10);
+                    networkStream.ReadExactly(headerBuf, 0, 9);
                 }
                 catch (EndOfStreamException)
                 {
                     return 0;
                 }
 
-                uint bufferSize = BitConverter.ToUInt32(headerBuf, 0);
-                uint payloadSize = BitConverter.ToUInt16(headerBuf, 4);
-                uint batchSize = BitConverter.ToUInt32(headerBuf, 6);
+                uint input_buffer_size = BitConverter.ToUInt32(headerBuf, 0);
+                uint key_len = BitConverter.ToUInt32(headerBuf, 5);
+                // uint bufferSize = BitConverter.ToUInt32(headerBuf, 0);
+                // uint payloadSize = BitConverter.ToUInt16(headerBuf, 4);
+                // uint batchSize = BitConverter.ToUInt32(headerBuf, 6);
 
-                uint totalPayload = batchSize * payloadSize;
+                uint max_len = Math.Max(key_len, input_buffer_size);
+                // uint totalPayload = batchSize * payloadSize;
 
-                if (readBuffer.Length < totalPayload)
+                if (readBuffer.Length < max_len)
                 {
-                    readBuffer = new byte[totalPayload];
+                    readBuffer = new byte[max_len];
                 }
 
-                if (writeBuffer.Length < bufferSize * 4)
+                if (writeBuffer.Length < input_buffer_size << 2)
                 {
-                    writeBuffer = new byte[bufferSize * 4];
+                    writeBuffer = new byte[input_buffer_size << 2];
                 }
 
-                // var payload = new byte[payloadSize];
+                networkStream.ReadExactly(readBuffer, 0, (int)key_len);
+                string key = Encoding.UTF8.GetString(readBuffer, 0, (int)key_len);
 
-                networkStream.ReadExactly(readBuffer, 0, (int)totalPayload);
-                int byteOffset = 4;
+                networkStream.ReadExactly(readBuffer, 0, (int)input_buffer_size);
+                int writeOffset = 4;
+                int readOffset = 0;
+                var watch = System.Diagnostics.Stopwatch.StartNew();
 
-                for (long batch = 0; batch < batchSize; ++batch)
+                while (readOffset < input_buffer_size)
                 {
-                    int start = (int)(batch * payloadSize);
-                    // Array.Copy(readBuffer, start, payload, 0, payloadSize);
-                    string data = Encoding.UTF8.GetString(readBuffer, start, (int)payloadSize);
+                    int json_size = BitConverter.ToUInt16(readBuffer, readOffset);
+                    readOffset += 2;
 
-                    string message = parserFn(data, "q");
+                    string data = Encoding.UTF8.GetString(readBuffer, readOffset, json_size);
+                    readOffset += json_size;
 
-                    // Console.Out.WriteLine(data, " ", message);
+                    watch.Reset();
+                    string message = parserFn(data, key);
+                    UInt32 elapsed = (UInt32)watch.Elapsed.TotalMicroseconds;
+
+                    var micros_bytes = BitConverter.GetBytes(elapsed);
+                    if (BitConverter.IsLittleEndian) Array.Reverse(micros_bytes);
+                    Array.Copy(micros_bytes, 0, writeBuffer, writeOffset, 4);
+                    writeOffset += 4;
 
                     var msgBytes = Encoding.UTF8.GetBytes(message);
                     if (msgBytes.Length > ushort.MaxValue)
@@ -111,22 +118,22 @@ class Program
                     }
 
                     ushort len = (ushort)msgBytes.Length;
-                    writeBuffer[byteOffset + 0] = (byte)(len & 0xFF);
-                    writeBuffer[byteOffset + 1] = (byte)((len >> 8) & 0xFF);
-                    byteOffset += 2;
+                    writeBuffer[writeOffset + 0] = (byte)(len & 0xFF);
+                    writeBuffer[writeOffset + 1] = (byte)((len >> 8) & 0xFF);
+                    writeOffset += 2;
 
-                    Array.Copy(msgBytes, 0, writeBuffer, byteOffset, msgBytes.Length);
-                    byteOffset += msgBytes.Length;
+                    Array.Copy(msgBytes, 0, writeBuffer, writeOffset, msgBytes.Length);
+                    writeOffset += msgBytes.Length;
                 }
 
                 // Prepend 4-byte little-endian size
-                int size = byteOffset - 4;
+                int size = writeOffset - 4;
                 writeBuffer[0] = (byte)(size & 0xFF);
                 writeBuffer[1] = (byte)((size >> 8) & 0xFF);
                 writeBuffer[2] = (byte)((size >> 16) & 0xFF);
                 writeBuffer[3] = (byte)((size >> 24) & 0xFF);
 
-                networkStream.Write(writeBuffer, 0, byteOffset);
+                networkStream.Write(writeBuffer, 0, writeOffset);
                 networkStream.Flush();
             }
         }
@@ -163,34 +170,34 @@ class Program
             return PARSE_ERROR;
         }
     }
-
-    static string ParseNewtonsoft(string data, string key)
-    {
-        // try
-        // {
-        //     using (JsonDocument doc = JsonDocument.Parse(data))
-        //     {
-        //         if (!doc.RootElement.TryGetProperty(key, out JsonElement el)) return KEY_NOT_FOUND;
-        //
-        //         switch (el.ValueKind)
-        //         {
-        //             case JsonValueKind.String:
-        //                 return el.GetString() ?? PARSE_ERROR;
-        //             case JsonValueKind.Number:
-        //                 return el.GetRawText();
-        //             case JsonValueKind.True:
-        //             case JsonValueKind.False:
-        //                 return el.GetRawText();
-        //             case JsonValueKind.Null:
-        //                 return "null";
-        //             default:
-        //                 return el.GetRawText();
-        //         }
-        //     }
-        // }
-        // catch (JsonException)
-        // {
-        return PARSE_ERROR;
-        // }
-    }
 }
+
+// static string ParseNewtonsoft(string data, string key)
+// {
+//     // try
+//     // {
+//     //     using (JsonDocument doc = JsonDocument.Parse(data))
+//     //     {
+//     //         if (!doc.RootElement.TryGetProperty(key, out JsonElement el)) return KEY_NOT_FOUND;
+//     //
+//     //         switch (el.ValueKind)
+//     //         {
+//     //             case JsonValueKind.String:
+//     //                 return el.GetString() ?? PARSE_ERROR;
+//     //             case JsonValueKind.Number:
+//     //                 return el.GetRawText();
+//     //             case JsonValueKind.True:
+//     //             case JsonValueKind.False:
+//     //                 return el.GetRawText();
+//     //             case JsonValueKind.Null:
+//     //                 return "null";
+//     //             default:
+//     //                 return el.GetRawText();
+//     //         }
+//     //     }
+//     // }
+//     // catch (JsonException)
+//     // {
+//     return PARSE_ERROR;
+//     // }
+// }

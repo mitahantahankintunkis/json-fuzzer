@@ -26,8 +26,8 @@ $parse_std = function(string $data, string $key): string {
         return PARSE_ERROR;
     }
 
-    if (array_key_exists($key, $parsed)) {
-        return strval($parsed[$key]);
+    if (is_array($parsed) && array_key_exists($key, $parsed)) {
+        return @strval($parsed[$key]);
     }
 
     return KEY_NOT_FOUND;
@@ -66,56 +66,70 @@ $read_buffer  = "";
 $write_buffer = "";
 
 while (true) {
-    $header = read_all($socket, 10);
+    $header = read_all($socket, 9);
 
-    if ($header === false || strlen($header) < 10) {
+    if ($header === false || strlen($header) < 9) {
         exit(0);
     }
 
     /* $buffer_size = unpack("V", substr($header, 0, 4))[1]; // little-endian u32 */
     /* $payload_size = unpack("v", substr($header, 4, 2))[1]; // little-endian u16 */
     /* $batch_size   = unpack("v", substr($header, 6, 2))[1]; // little-endian u16 */
-    $buffer_size  = unpack("V", $header, 0)[1];
-    $payload_size = unpack("v", $header, 4)[1];
-    $batch_size   = unpack("V", $header, 6)[1];
+    $input_buffer_size = unpack("V", $header, 0)[1];
+    $key_len = unpack("V", $header, 5)[1];
 
-    $read_length = $payload_size * $batch_size;
-    $read_buffer = read_all($socket, $read_length);
+    $key = read_all($socket, $key_len);
+    $read_buffer = read_all($socket, $input_buffer_size);
 
-    if ($read_buffer === false || strlen($read_buffer) < $read_length) {
+    if (strlen($read_buffer) < $input_buffer_size) {
 		echo "PHP Client: Could not read body\n";
         exit(0);
     }
 
-	if (strlen($write_buffer) < $buffer_size * 4) {
-		$write_buffer = str_repeat("\0", $buffer_size * 4);
+	if (strlen($write_buffer) < $input_buffer_size * 4) {
+		$write_buffer = str_repeat("\0", $input_buffer_size * 4);
 	}
 
-    $byte_offset = 4;
+	$read_offset = 0;
+    $write_offset = 4;
 
-    for ($batch = 0; $batch < $batch_size; ++$batch) {
-        $data = substr($read_buffer, $batch * $payload_size, $payload_size);
+	while ($read_offset < $input_buffer_size) {
+		$json_size = unpack("v", $read_buffer, $read_offset)[1];
+		$read_offset += 2;
+        $data = substr($read_buffer, $read_offset, $json_size);
+		$read_offset += $json_size;
 
-		$parsed = $parser_fn($data, "q");
+		$start = hrtime(true);
+		$parsed = $parser_fn($data, $key);
+		$end = hrtime(true);
+		$micros = ($end - $start) / 1000;
+
+        $micros_bytes = pack("V", $micros);
+		for ($i = 0; $i < 4; ++$i) {
+			$write_buffer[$write_offset + $i] = $micros_bytes[$i];
+		}
+
+        $write_offset += 4;
 
         $buffer_size = pack("v", strlen($parsed));
 		for ($i = 0; $i < 2; ++$i) {
-			$write_buffer[$byte_offset + $i] = $buffer_size[$i];
+			$write_buffer[$write_offset + $i] = $buffer_size[$i];
 		}
-        $byte_offset += 2;
+
+        $write_offset += 2;
 
 		for ($i = 0; $i < strlen($parsed); ++$i) {
-			$write_buffer[$byte_offset + $i] = $parsed[$i];
+			$write_buffer[$write_offset + $i] = $parsed[$i];
 		}
 
-        $byte_offset += strlen($parsed);
+        $write_offset += strlen($parsed);
     }
 
-    $prefix = pack("V", $byte_offset - 4);
+    $prefix = pack("V", $write_offset - 4);
 
 	for ($i = 0; $i < 4; ++$i) {
 		$write_buffer[$i] = $prefix[$i];
 	}
 
-    fwrite($socket, $write_buffer, $byte_offset);
+    fwrite($socket, $write_buffer, $write_offset);
 }

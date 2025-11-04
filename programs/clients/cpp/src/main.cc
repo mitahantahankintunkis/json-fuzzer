@@ -1,8 +1,12 @@
+// Written mostly in C for fun
 #include <Poco/Dynamic/Var.h>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <iostream>
 #include <stdexcept>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +19,7 @@
 #include <sys/un.h>
 #include <stdint.h>
 #include <time.h>
+#include <chrono>
 
 #include <jansson.h>
 #include <Poco/JSON/Parser.h>
@@ -78,21 +83,21 @@ int send_all(int sock, const void *buf, size_t len) {
 }
 
 
-char* parse_cjson(char* data, int json_size, char* key, char* buf, int buf_size) {
+char* parse_cjson(char* data, int json_size, char* key, int key_size, char* buf, int buf_size) {
     cJSON *parsed = cJSON_Parse(data);
     if (parsed) {
-        cJSON *q = cJSON_GetObjectItemCaseSensitive(parsed, "q");
+        cJSON *value = cJSON_GetObjectItemCaseSensitive(parsed, key);
         char* ret;
 
-        if (cJSON_IsNumber(q) && q->valuedouble) {
-            if (q->valuedouble == floorf(q->valuedouble)) {
-                snprintf((char*)buf, buf_size, "%d", q->valueint);
-            } else {
-                snprintf((char*)buf, buf_size, "%g", q->valuedouble);
-            }
+        if (cJSON_IsNumber(value) && value->valuedouble) {
+            // if (value->valuedouble == floorf(value->valuedouble)) {
+            //     snprintf((char*)buf, buf_size, "%d", value->valueint);
+            // } else {
+            snprintf((char*)buf, buf_size, "%g", value->valuedouble);
+            // }
             ret = (char*)buf;
-        } else if (cJSON_IsString(q) && q->valuestring) {
-			strncpy(buf, q->valuestring, buf_size - 1);
+        } else if (cJSON_IsString(value) && value->valuestring) {
+			strncpy(buf, value->valuestring, buf_size - 1);
             ret = (char*)buf;
         } else {
             ret = (char*)KEY_NOT_FOUND;
@@ -106,7 +111,7 @@ char* parse_cjson(char* data, int json_size, char* key, char* buf, int buf_size)
 }
 
 
-char* parse_jansson(char* data, int json_size, char* key, char* buf, int buf_size) {
+char* parse_jansson(char* data, int json_size, char* key, int key_size, char* buf, int buf_size) {
     json_t *root;
     json_error_t error;
 
@@ -143,63 +148,78 @@ char* parse_jansson(char* data, int json_size, char* key, char* buf, int buf_siz
 }
 
 
-char* parse_modsecurity(char* data, int json_size, char* key, char* buf, int buf_size) {
+char* parse_modsecurity(char* data, int json_size, char* key, int key_size, char* buf, int buf_size) {
+	// TODO - optimize
+	char* path = (char*)malloc(key_size + 6);
+	sprintf(path, "json.%s", key);
+
+	char* ret = buf;
+
 	modsecurity::RequestBodyProcessor::JSON parser = modsecurity::RequestBodyProcessor::JSON();
 	std::string error;
 	parser.processChunk(data, json_size, &error);
 	parser.complete(&error);
 
 	if (!error.empty()) {
-		return (char*)PARSE_ERROR;
+		ret = (char*)PARSE_ERROR;
+	} else if (!parser.parsed.contains(path)) {
+		ret = (char*)KEY_NOT_FOUND;
+	} else {
+		strncpy(buf, parser.parsed[path].c_str(), buf_size - 1);
 	}
 
-	if (!parser.parsed.contains("json.q")) {
-		return (char*)KEY_NOT_FOUND;
-	}
-
-
-	strncpy(buf, parser.parsed["json.q"].c_str(), buf_size - 1);
-	return (char*)buf;
+	free(path);
+	return ret;
 }
 
 
-char* parse_mjson(char* data, int json_size, char* key, char* buf, int buf_size) {
+char* parse_mjson(char* data, int json_size, char* key, int key_size, char* buf, int buf_size) {
 	double ret;
 
-	if (mjson_get_number(data, json_size, "$.q", &ret)) {
+	// TODO - optimize
+	char* path = (char*)malloc(key_size + 3);
+	sprintf(path, "$.%s", key);
+
+	if (mjson_get_number(data, json_size, path, &ret)) {
 		if (std::floor(ret) == ret) {
 			snprintf((char*)buf, buf_size, "%d", (int)ret);
 		} else {
 			snprintf((char*)buf, buf_size, "%g", ret);
 		}
+
+		free(path);
 		return buf;
 	}
 
+	free(path);
 	return (char*)PARSE_ERROR;
 }
 
 
-char* parse_frozen(char* data, int json_size, char* key, char* buf, int buf_size) {
-	double ret;
-	int err = json_scanf(data, json_size, "{q: %lf}", &ret);
+char* parse_frozen(char* data, int json_size, char* key, int key_size, char* buf, int buf_size) {
+	char* ret = buf;
+	char* query = (char*)malloc(key_size + 8);
+	sprintf(query, "{%s: %%lf}", key);
+
+	double value;
+	int err = json_scanf(data, json_size, query, &value);
 
 	if (err == 0) {
-		return (char*)KEY_NOT_FOUND;
+		ret = (char*)KEY_NOT_FOUND;
+	} else if (err < 0) {
+		ret = (char*)PARSE_ERROR;
+	} else {
+		snprintf((char*)buf, buf_size, "%g", value);
 	}
 
-	if (err < 0) {
-		return (char*)PARSE_ERROR;
-	}
-
-	snprintf((char*)buf, buf_size, "%g", ret);
-
-	return buf;
+	free(query);
+	return ret;
 }
 
 jsmntok_t jsmn_tokens[4096];
 jsmn_parser parser_jsmn;
 
-char* parse_jsmn(char* data, int json_size, char* query_key, char* buf, int buf_size) {
+char* parse_jsmn(char* data, int json_size, char* query_key, int key_size, char* buf, int buf_size) {
 	jsmn_init(&parser_jsmn);
 
 	int parsed_n = jsmn_parse(&parser_jsmn, data, json_size, jsmn_tokens, 4096);
@@ -256,7 +276,7 @@ char* parse_jsmn(char* data, int json_size, char* query_key, char* buf, int buf_
 			snprintf((char*)buf, buf_size, "false");
 		} else if (first == 't') {
 			snprintf((char*)buf, buf_size, "true");
-		} else {
+		} else if (first == '-' || (first >= '0' && first <= '9')) {
 			int val_len = ret_val->end - j;
 
 			if (val_len > (int)buf_size) {
@@ -274,6 +294,8 @@ char* parse_jsmn(char* data, int json_size, char* query_key, char* buf, int buf_
 			} catch (const std::invalid_argument& e) {
 				return (char*)PARSE_ERROR;
 			}
+		} else {
+			buf = (char*)PARSE_ERROR;
 		}
 
 		return buf;
@@ -285,12 +307,12 @@ char* parse_jsmn(char* data, int json_size, char* query_key, char* buf, int buf_
 
 Poco::JSON::Parser parser_poco;
 
-char* parse_poco(char* data, int json_size, char* key, char* buf, int buf_size) {
+char* parse_poco(char* data, int json_size, char* key, int key_size, char* buf, int buf_size) {
 	try {
 	    parser_poco.reset();
 		Poco::Dynamic::Var result = parser_poco.parse(data);
 		Poco::JSON::Object::Ptr object = result.extract<Poco::JSON::Object::Ptr>();
-		double value = object->getValue<double>("q");
+		double value = object->getValue<double>(key);
 
 		snprintf((char*)buf, buf_size, "%g", value);
 	} catch (const std::exception& e) {
@@ -300,7 +322,7 @@ char* parse_poco(char* data, int json_size, char* key, char* buf, int buf_size) 
 	return buf;
 }
 
-char* parse_boost(char* data, int json_size, char* key, char* buf, int buf_size) {
+char* parse_boost(char* data, int json_size, char* key, int key_size, char* buf, int buf_size) {
 	boost::system::error_code ec;
 	auto value = boost::json::parse(data, ec);
 
@@ -332,13 +354,18 @@ char* parse_boost(char* data, int json_size, char* key, char* buf, int buf_size)
 }
 
 
-char* parse_nlohmann(char* data, int json_size, char* key, char* buf, int buf_size) {
+char* parse_nlohmann(char* data, int json_size, char* key, int key_size, char* buf, int buf_size) {
 	try {
 		nlohmann::json parsed = nlohmann::json::parse(data);
 
 		if (!parsed.contains(key)) {
 			return (char*)KEY_NOT_FOUND;
 		}
+
+		// if (parsed[key].is_string()) {
+		// 	snprintf((char*)buf, buf_size, "%s", (char*)parsed[key]);
+		// 	return buf;
+		// }
 
 		if (parsed[key].is_number()) {
 			snprintf((char*)buf, buf_size, "%g", (double)parsed[key]);
@@ -352,6 +379,10 @@ char* parse_nlohmann(char* data, int json_size, char* key, char* buf, int buf_si
 
 
 int main(int argc, char* argv[]) {
+	// char* asdf = (char*)"{\"4294967295\":2,\"0\":3}";
+	// char* key0 = (char*)"4294967295";
+	// char buf[1000];
+	// std::cout << "adf " << parse_cjson(asdf, strlen(asdf), key0, strlen(key0), buf, 1000) << "\n";
     int parser_number = 0;
 
     if (argc == 2) {
@@ -359,7 +390,7 @@ int main(int argc, char* argv[]) {
     }
 
     char* parser_name;
-	char* (*parser_fn)(char*, int, char*, char*, int);
+	char* (*parser_fn)(char*, int, char*, int, char*, int);
 
     switch (parser_number) {
         case 0:
@@ -452,77 +483,122 @@ int main(int argc, char* argv[]) {
     size_t read_size = 0;
     size_t write_size = 0;
     char* message = NULL;
+	uint32_t key_len = 0;
+	char* key = (char*)malloc(key_len + 1);
+	size_t json_len = 128;
+	char* json_str = (char*)malloc(json_len);
+	json_str[0] = 0;
+	key[0] = 0;
 
-    uint8_t header[10];
+    uint8_t* header = (uint8_t*)malloc(9);
 	char message_buf[1 << 12];
 
     while (1) {
-        if (recv_all(sock, header, 10) < 0) {
+        if (recv_all(sock, header, 9) < 0) {
             break;
         }
 
-        uint32_t buffer_size = *((uint32_t*)&header[0]);
-        uint16_t payload_size = *((uint16_t*)&header[4]);
-        uint32_t batch_size = *((uint32_t*)&header[6]);
-        // char mode = (Mode)header[10];
+        uint32_t input_buffer_size = *((uint32_t*)&header[0]);
+        // char datatype = *((uint32_t*)&header[4]);
+		uint32_t new_key_len = *((uint32_t*)&header[5]);
 
-        size_t total_payload = (size_t)payload_size * batch_size;
-		size_t send_size = buffer_size << 2;
+		if (key_len != new_key_len) {
+			key_len = new_key_len;
+			key = (char*)realloc(key, key_len + 1);
+		}
 
-
-        if (read_size != buffer_size) {
-            read_buffer = (uint8_t*)realloc(read_buffer, buffer_size);
-			read_size = total_payload;
+        if (recv_all(sock, key, key_len) < 0) {
+            break;
         }
 
-        if (write_size != send_size) {
+		key[key_len] = 0;
+
+		// std::printf("header %d %d %s\n", input_buffer_size, key_len, key);
+
+        // uint32_t buffer_size = *((uint32_t*)&header[0]);
+        // uint16_t payload_size = *((uint16_t*)&header[4]);
+        // uint32_t batch_size = *((uint32_t*)&header[6]);
+        // char mode = (Mode)header[10];
+
+        // size_t total_payload = (size_t)payload_size * batch_size;
+		size_t send_size = input_buffer_size << 2;
+
+        if (read_size < input_buffer_size) {
+            read_buffer = (uint8_t*)realloc(read_buffer, input_buffer_size);
+			read_size = input_buffer_size;
+        }
+
+        if (write_size < send_size) {
             write_buffer = (uint8_t*)realloc(write_buffer, send_size);
 			write_size = send_size;
         }
 
-        if (recv_all(sock, read_buffer, total_payload) < 0) {
+        if (recv_all(sock, read_buffer, input_buffer_size) < 0) {
             printf("C/C++ Client: Connection closed (read)\n");
             break;
         }
 
-        size_t byte_offset = 4;
-		char* json_str = (char*)malloc(payload_size + 1);
-		json_str[payload_size] = 0;
+		size_t read_offset = 0;
+        size_t write_offset = 4;
+		// char* json_str = (char*)malloc(payload_size + 1);
 
-        for (uint32_t i = 0; i < batch_size; i++) {
-            uint8_t* data = read_buffer + i * payload_size;
-			strncpy(json_str, (char*)data, payload_size);
+        // for (uint32_t i = 0; i < batch_size; i++) {
+		while (read_offset < input_buffer_size) {
+			uint16_t new_json_len = *((uint16_t*)&read_buffer[read_offset]);
+			read_offset += 2;
 
-			// auto start = std::chrono::high_resolution_clock::now();
-			message = parser_fn(json_str, payload_size, (char*)"q", message_buf, sizeof(message_buf));
+			if (json_len < new_json_len) {
+				json_str = (char*)realloc(json_str, new_json_len + 1);
+				json_len = new_json_len;
+			}
+
+            char* data = (char*)read_buffer + read_offset;
+			strncpy(json_str, data, new_json_len);
+			json_str[new_json_len] = 0;
+			read_offset += new_json_len;
+
+			auto start = std::chrono::high_resolution_clock::now();
+			message = parser_fn(json_str, new_json_len, key, key_len, message_buf, sizeof(message_buf));
 
 			// if (mode == Mode::Time) {
-			// 	auto end = std::chrono::high_resolution_clock::now();
-			// 	uint64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
 			// std::cout << json_str << " -> " << message << ": " << ns << std::endl;
-			// 	snprintf((char*)buf, buf_size, "%lld", (unsigned long long)ns);
-			// 	message = buf;
+			auto end = std::chrono::high_resolution_clock::now();
+			uint32_t micros = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+			// snprintf((char*)buf, buf_size, "%lld", (unsigned long long)ns);
+			// message = buf;
 			// }
 
 			uint16_t msg_len = (uint16_t)strlen(message);
-			memcpy(write_buffer + byte_offset, &msg_len, 2);
-			byte_offset += 2;
 
-			memcpy(write_buffer + byte_offset, message, msg_len);
-			byte_offset += msg_len;
+			if (write_size < write_offset + 6 + msg_len) {
+				write_size *= 2;
+				write_buffer = (uint8_t*)realloc(write_buffer, write_size);
+			}
+
+			memcpy(write_buffer + write_offset, &micros, 4);
+			write_offset += 4;
+
+			memcpy(write_buffer + write_offset, &msg_len, 2);
+			write_offset += 2;
+
+			memcpy(write_buffer + write_offset, message, msg_len);
+			write_offset += msg_len;
         }
 
-        free(json_str);
+		// std::printf("red %d\n", n);
 
-        uint32_t payload_len = byte_offset - 4;
+        uint32_t payload_len = write_offset - 4;
         memcpy(write_buffer, &payload_len, 4);
 
-        if (send_all(sock, write_buffer, byte_offset) < 0) {
+        if (send_all(sock, write_buffer, write_offset) < 0) {
             perror("C/C++ Client: Write error\n");
             break;
         }
     }
 
+    free(json_str);
+	free(key);
+	free(header);
     free(read_buffer);
     free(write_buffer);
     close(sock);

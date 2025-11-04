@@ -1,3 +1,4 @@
+analyzed/
 target/
 build/
 bin/
@@ -29,3 +30,4 @@ boost_1_82_0/
 *.xmpi
 
 /paper/
+perf.data*

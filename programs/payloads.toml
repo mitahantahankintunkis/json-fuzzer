@@ -11,6 +11,11 @@
 name = "valid-no-fuzz"
 payload = '{"q":42}'
 
+[[payloads]]
+name = "test"
+key = "ä"
+payload = '{"ä":2,"ä":3}'
+[[payloads.fuzz]]
 
 # Simple insertion
 [[payloads]]

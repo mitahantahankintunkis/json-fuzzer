@@ -117,13 +117,12 @@ def main():
 
     while True:
         try:
-            # s = socket.create_connection(('127.0.0.1', 5000))
             s.connect('/tmp/fuzzer.sock')
+            # s = socket.create_connection(('127.0.0.1', 5000))
+            # s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             break
         except OSError:
             time.sleep(0.1)
-
-    # s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
     name_buffer = name.ljust(64, b'\0')
     s.sendall(name_buffer)
@@ -132,52 +131,70 @@ def main():
     write_buffer = bytearray()
 
     while True:
-        header = s.recv(10)
-        if len(header) < 10:
+        header = s.recv(9)
+        if len(header) < 9:
             return
 
-        buffer_size, payload_size, batch_size = struct.unpack('<IHI', header)
-        total_payload = batch_size * payload_size
+        input_buffer_size, _, key_len = struct.unpack('<IBI', header)
+        max_len = max(input_buffer_size, key_len)
 
         # Resize buffers if needed
-        if len(read_buffer) != total_payload:
-            read_buffer = bytearray(total_payload)
-        if len(write_buffer) != buffer_size << 2:
-            write_buffer = bytearray(buffer_size << 2)
+        if len(read_buffer) < max_len:
+            read_buffer = bytearray(max_len)
+        if len(write_buffer) < input_buffer_size << 2:
+            write_buffer = bytearray(input_buffer_size << 2)
 
-        # Read JSON payloads
         view = memoryview(read_buffer)
         total_read = 0
-        while total_read < total_payload:
-            n = s.recv_into(view[total_read:], total_payload - total_read)
+        while total_read < key_len:
+            n = s.recv_into(view[total_read:], key_len - total_read)
             if n == 0:
                 return
             total_read += n
 
-        byte_offset = 4
+        key = bytes(read_buffer[0:key_len]).decode()
 
-        for batch in range(batch_size):
-            start = batch * payload_size
-            end = (batch + 1) * payload_size
-            data = read_buffer[start:end]
+        total_read = 0
+        while total_read < input_buffer_size:
+            n = s.recv_into(view[total_read:], input_buffer_size - total_read)
+            if n == 0:
+                return
+            total_read += n
 
-            # Parse JSON
-            message = parser_fn(data, 'q')
+        read_offset = 0
+        write_offset = 4
 
-            # Write message length (u16 LE) + message bytes
-            size_bytes = struct.pack('<H', len(message))
-            write_buffer[byte_offset:byte_offset + 2] = size_bytes
-            byte_offset += 2
+        while read_offset < input_buffer_size:
+            json_size = struct.unpack('<H', read_buffer[read_offset:read_offset + 2])[0]
+            read_offset += 2
+
+            data = read_buffer[read_offset:read_offset + json_size]
+            read_offset += json_size
+
+            start = time.perf_counter_ns()
+            message = parser_fn(data, key)
+            end = time.perf_counter_ns()
+            micros = (end - start) / 1000
+
+            micros_bytes = struct.pack('<I', int(micros))
+            write_buffer[write_offset:write_offset + 4] = micros_bytes
+            write_offset += 4
 
             msg_bytes = message.encode('utf-8')
-            write_buffer[byte_offset:byte_offset + len(msg_bytes)] = msg_bytes
-            byte_offset += len(msg_bytes)
 
-        # Write payload size into first 4 bytes
-        write_buffer[0:4] = struct.pack('<I', byte_offset - 4)
+            if len(message) > (1 << 16) - 1:
+                message = message[:(1 << 16) - 1]
 
-        # Send back result
-        s.sendall(write_buffer[:byte_offset])
+            size_bytes = struct.pack('<H', len(msg_bytes))
+
+            write_buffer[write_offset:write_offset + 2] = size_bytes
+            write_offset += 2
+
+            write_buffer[write_offset:write_offset + len(msg_bytes)] = msg_bytes
+            write_offset += len(msg_bytes)
+
+        write_buffer[0:4] = struct.pack('<I', write_offset - 4)
+        s.sendall(write_buffer[:write_offset])
 
 
 if __name__ == '__main__':
