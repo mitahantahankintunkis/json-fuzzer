@@ -33,8 +33,19 @@ local function parse_cjson(data, key)
 	if not parsed then
 		return PARSE_ERROR
 	end
-	if type(parsed) == "table" and parsed[key] ~= nil then
-		return tostring(parsed[key])
+
+	if type(parsed) == "table" then
+		if parsed[key] == nil then
+			return KEY_NOT_FOUND
+		end
+
+		local ret = cjson.encode(parsed[key])
+
+		if ret == nil then
+			return PARSE_ERROR
+		end
+
+		return ret
 	else
 		return KEY_NOT_FOUND
 	end
@@ -68,8 +79,8 @@ local function main()
 	until ok
 
 	-- Send name padded to 64 bytes
-	local name_buffer = name .. string.rep("\0", 64 - #name)
-	s:send(name_buffer)
+	local info_buf = name .. string.rep("\0", 65 - #name)
+	s:send(info_buf)
 
 	while true do
 		local header, _ = s:receive(9)
@@ -104,15 +115,15 @@ local function main()
 			local start_time = os.clock()
 			local message = parser_fn(json, key)
 			local end_time = os.clock()
-			local micros = math.floor((end_time - start_time) * 1000000)
+			local ns = math.floor((end_time - start_time) * 100000000)
 
-			local micros_bytes = string.char(
-				micros % 256,
-				math.floor(micros / 256) % 256,
-				math.floor(micros / 65536) % 256,
-				math.floor(micros / 16777216) % 256
+			local ns_bytes = string.char(
+				ns % 256,
+				math.floor(ns / 256) % 256,
+				math.floor(ns / 65536) % 256,
+				math.floor(ns / 16777216) % 256
 			)
-			table.insert(parts, micros_bytes)
+			table.insert(parts, ns_bytes)
 			write_offset = write_offset + 4
 
 			local len = #message

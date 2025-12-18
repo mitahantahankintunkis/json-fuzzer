@@ -4,7 +4,10 @@
 # rm data/*test*
 
 (trap 'kill 0' SIGINT
-    for parser_number in {0..10}; do
+
+    # cpp-client 1 &
+
+    for parser_number in {0..20}; do
 		rust-client $parser_number &
         cpp-client $parser_number &
 		go-client $parser_number &

@@ -1,0 +1,22 @@
+services:
+  fuzzer:
+    build:
+      context: .
+    container_name: fuzzer
+    restart: no
+    stdin_open: true
+    tty: true
+    volumes:
+      - ./analyzed:/app/analyzed
+
+  postgres:
+    image: postgres:18.1-trixie
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+    restart: unless-stopped
+    shm_size: 128mb
+
+  mongo:
+    image: mongo:8.2.2
+    restart: unless-stopped
+    shm_size: 128mb

@@ -1,30 +1,18 @@
-#![allow(unused)]
-use core::panic::PanicInfo;
 use std::env;
 use std::io::prelude::*;
-use std::net::TcpStream;
 use std::os::unix::net::UnixStream;
 use std::process::exit;
 use std::time::Instant;
 
-#[macro_use]
+use postgres::{Client, NoTls};
+use rusqlite::Connection;
+
 extern crate json;
 
 const KEY_NOT_FOUND: &str = "KEY_NOT_FOUND";
 const PARSE_ERROR: &str = "PARSE_ERROR";
-const CRITICAL_ERROR: &str = "CRITICAL_ERROR";
 
-enum Datatype {
-    Int,
-    Float,
-    String,
-    Object,
-    Array,
-    Null,
-    Bool,
-}
-
-fn parse_serde(data: &[u8], key: &str, _datatype: &Datatype) -> String {
+fn parse_serde(data: &[u8], key: &str) -> String {
     match serde_json::from_slice::<serde_json::Value>(data) {
         Ok(parsed) => match parsed.get(key) {
             Some(q) => q.to_string(),
@@ -34,12 +22,140 @@ fn parse_serde(data: &[u8], key: &str, _datatype: &Datatype) -> String {
     }
 }
 
-fn parse_json(data: &[u8], key: &str, _datatype: &Datatype) -> String {
+fn parse_json(data: &[u8], key: &str) -> String {
     let parsed = json::parse(&String::from_utf8_lossy(&data).to_string());
 
     match parsed {
-        Ok(parsed) => parsed[key].to_string(),
+        Ok(parsed) => match parsed[key] {
+            json::JsonValue::Null => String::from(KEY_NOT_FOUND),
+            _ => json::stringify(parsed[key].clone()),
+        },
         Err(_) => String::from(PARSE_ERROR),
+    }
+}
+
+fn parse_sqlite(data: &[u8], key: &str, conn: &Connection) -> String {
+    // conn.execute("UPDATE test SET x = ?1 WHERE id = 1", [data])
+    //     .unwrap();
+    let str = match String::from_utf8(data.to_vec()) {
+        Ok(s) => s,
+        Err(_) => return PARSE_ERROR.into(),
+    };
+
+    let query = conn.query_one(
+        &format!(
+            "SELECT json_type(x, '$.{key}'), json_extract(x, '$.{key}') FROM (SELECT '{json}' AS x)",
+            key=key.replace("'", "''"),
+            json=str.replace("'", "''"),
+        ),
+        [],
+        |row| {
+            let t: Option<String> = row.get(0)?;
+
+            if t.is_none() {
+                return Ok(KEY_NOT_FOUND.into());
+            }
+
+            let val = match t.unwrap().as_ref() {
+                "null" => "null".into(),
+                "true" => {
+                    let val: bool = row.get(1)?;
+                    val.to_string()
+                }
+                "false" => {
+                    let val: bool = row.get(1)?;
+                    val.to_string()
+                }
+                "integer" => {
+                    let val: i64 = row.get(1)?;
+                    val.to_string()
+                }
+                "real" => {
+                    let val: f64 = row.get(1)?;
+                    val.to_string()
+                }
+                "text" => {
+                    let val: String = row.get(1)?;
+                    format!("\"{}\"", val)
+                }
+                "array" => {
+                    let val: String = row.get(1)?;
+                    val
+                }
+                "object" => {
+                    let val: String = row.get(1)?;
+                    val
+                }
+                _ => PARSE_ERROR.into(),
+            };
+
+            Ok(val)
+        },
+    );
+
+    match query {
+        Ok(val) => val,
+        Err(_) => String::from(PARSE_ERROR),
+    }
+}
+
+fn parse_postgres(data: &[u8], key: &str, client: &mut Client, _parser_number: i32) -> String {
+    let str = match String::from_utf8(data.to_vec()) {
+        Ok(s) => s,
+        Err(_) => return PARSE_ERROR.into(),
+    };
+
+    // let res = client.execute(
+    //     &format!(
+    //         "UPDATE test SET x = '{}' WHERE id = {}",
+    //         str.replace("'", "\\'"),
+    //         parser_number
+    //     ),
+    //     &[],
+    // );
+
+    // if let Err(_) = res {
+    //     return PARSE_ERROR.into();
+    // }
+
+    let query = client.query_one(
+        &format!(
+            "SELECT x -> '{}' FROM (SELECT '{}'::jsonb AS x)",
+            key.replace("'", "''"),
+            str.replace("'", "''")
+        ),
+        &[],
+    ); // &[&key, &str])
+       // let query = client.query_one(
+       //     "SELECT x -> $1 FROM test WHERE id = $2",
+       //     &[&key, &parser_number],
+       // );
+
+    match query {
+        Ok(row) => {
+            let val: Result<serde_json::Value, postgres::Error> = row.try_get(0);
+            if let Ok(val) = val {
+                if val.is_i64() {
+                    if let Some(val) = val.as_i64() {
+                        return format!("{}", val);
+                    }
+                }
+                if val.is_f64() {
+                    if let Some(val) = val.as_f64() {
+                        return format!("{}", val);
+                    }
+                }
+                if val.is_string() {
+                    if let Some(val) = val.as_str() {
+                        return format!("\"{}\"", val);
+                    }
+                }
+            }
+
+            PARSE_ERROR.into()
+        }
+
+        Err(_) => PARSE_ERROR.into(),
     }
 }
 
@@ -53,15 +169,37 @@ fn main() -> std::io::Result<()> {
         0
     };
 
-    let (name, parse_fn): (&str, fn(&[u8], &str, &Datatype) -> String) = match parser_number {
-        0 => ("rust_serde", parse_serde),
-        1 => ("rust_json", parse_json),
+    let sqlite_conn = Connection::open_in_memory().unwrap();
+    sqlite_conn
+        .execute("CREATE TABLE test(id INTEGER PRIMARY KEY, x JSON)", [])
+        .unwrap();
+
+    let mut postgres_client = Client::connect("host=postgres user=postgres", NoTls)
+        .expect("Rust: Could not connect to postgres");
+    postgres_client
+        .batch_execute("CREATE TABLE IF NOT EXISTS test(id INTEGER PRIMARY KEY, x JSONB)")
+        .unwrap();
+
+    sqlite_conn
+        .execute("INSERT INTO test VALUES (1, '{}')", [])
+        .unwrap();
+    postgres_client
+        .execute(
+            "INSERT INTO test VALUES ($1, '{}') ON CONFLICT DO NOTHING",
+            &[&(parser_number as i32)],
+        )
+        .unwrap();
+
+    let name = match parser_number {
+        0 => "rust_serde",
+        1 => "rust_json",
+        2 => "sqlite3",
+        3 => "postgres",
         _ => exit(1),
     };
 
     loop {
         if let Ok(s) = UnixStream::connect("/tmp/fuzzer.sock") {
-            // if let Ok(s) = TcpStream::connect("127.0.0.1:5000") {
             stream = s;
             break;
         }
@@ -69,15 +207,15 @@ fn main() -> std::io::Result<()> {
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
 
-    let mut name_buffer: [u8; 64] = [0; 64];
-    name_buffer[0..name.len()].copy_from_slice(name.as_bytes());
+    let mut info_buf: [u8; 65] = [0; 65];
+    info_buf[0..name.len()].copy_from_slice(name.as_bytes());
 
     stream
-        .write_all(&name_buffer)
+        .write_all(&info_buf)
         .expect("Rust: Could not write name");
 
-    let mut read_buffer: Box<Vec<u8>> = Box::new(Vec::new());
-    let mut write_buffer: Box<Vec<u8>> = Box::new(Vec::new());
+    let mut read_buffer: Box<Vec<u8>> = Box::new(vec![0u8; 1000_000]);
+    let mut write_buffer: Box<Vec<u8>> = Box::new(vec![0u8; 1000_000]);
 
     loop {
         let mut header = [0u8; 9];
@@ -89,14 +227,6 @@ fn main() -> std::io::Result<()> {
         let input_buffer_size = u32::from_le_bytes(header[0..4].try_into().unwrap()) as usize;
         // let datatype = header[4];
         let key_len = u32::from_le_bytes(header[5..9].try_into().unwrap()) as usize;
-
-        if read_buffer.len() <= std::cmp::max(input_buffer_size, key_len) {
-            read_buffer = Box::new(vec![0; std::cmp::max(input_buffer_size, key_len)]);
-        }
-
-        if write_buffer.len() <= input_buffer_size << 2 {
-            write_buffer = Box::new(vec![0; input_buffer_size << 2]);
-        }
 
         stream.read_exact(&mut read_buffer[0..key_len]).unwrap();
         let key = String::from_utf8(read_buffer[0..key_len].to_vec())
@@ -119,11 +249,18 @@ fn main() -> std::io::Result<()> {
                     read_offset += json_size;
 
                     let start = Instant::now();
-                    let message = parse_fn(data, &key, &Datatype::Int);
-                    let micros = start.elapsed().as_micros() as u32;
+                    // let message = parse_fn(data, &key, &params);
+                    let message = match parser_number {
+                        0 => parse_serde(data, &key),
+                        1 => parse_json(data, &key),
+                        2 => parse_sqlite(data, &key, &sqlite_conn),
+                        3 => parse_postgres(data, &key, &mut postgres_client, parser_number as i32),
+                        _ => exit(1),
+                    };
 
-                    write_buffer[write_offset..write_offset + 4]
-                        .copy_from_slice(&micros.to_le_bytes());
+                    let ns = (start.elapsed().as_nanos() / 10) as u32;
+
+                    write_buffer[write_offset..write_offset + 4].copy_from_slice(&ns.to_le_bytes());
                     write_offset += 4;
 
                     write_buffer[write_offset..write_offset + 2]

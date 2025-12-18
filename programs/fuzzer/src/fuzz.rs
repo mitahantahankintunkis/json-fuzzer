@@ -1,12 +1,6 @@
 use std::fmt::Display;
-#[allow(unused)]
-use std::{
-    cmp::{max, min, Ordering},
-    fs,
-    ops::Range,
-};
 
-use crate::{comprehensive_fuzzer::ComprehensiveFuzzer, radamsa_wrapper::Radamsa};
+use crate::comprehensive_fuzzer::ComprehensiveFuzzer;
 
 pub trait Fuzzer {
     fn advance(&mut self) -> Result<(), ()>;
@@ -16,31 +10,108 @@ pub trait Fuzzer {
 
 #[derive(Debug, Clone)]
 pub struct TestCase {
-    pub weight: f64,
-    pub parent_json: Option<String>,
-    pub depth: usize,
+    pub id: isize,
     pub json: String,
     pub key: String,
+    pub weight: f64,
+    pub depth: usize,
+    pub parent_id: Option<isize>,
+    pub parser: Option<String>,
+}
+
+impl PartialEq for TestCase {
+    fn eq(&self, other: &Self) -> bool {
+        return self.weight == other.weight
+            && self.depth == other.depth
+            && self.json == other.json
+            && self.key == other.key
+            && self.parser.eq(&other.parser);
+    }
+}
+
+impl Eq for TestCase {}
+
+impl Ord for TestCase {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.weight
+            .total_cmp(&other.weight)
+            .then_with(|| self.depth.cmp(&other.depth))
+            .then_with(|| self.json.cmp(&other.json))
+            .then_with(|| self.key.cmp(&other.key))
+    }
+}
+
+impl PartialOrd for TestCase {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl TestCase {
     pub fn new(json: String, key: String, parent: Option<TestCase>) -> Self {
-        let mut parent_json = None;
+        let mut parent_id = None;
         let mut depth = 0;
 
         if let Some(parent) = parent {
-            parent_json = Some(parent.json.clone());
+            parent_id = Some(parent.id);
             depth = parent.depth + 1;
         }
 
         TestCase {
+            id: -1,
             weight: 0.0,
-            parent_json,
+            parent_id,
             depth,
             json,
             key,
+            parser: None,
         }
     }
+
+    // pub fn update_id(&mut self, db_conn: &Connection) {
+    //     if self.id >= 0 {
+    //         return;
+    //     }
+    //
+    //     // Find existing
+    //     let id = db_conn.query_one(
+    //         "SELECT id FROM corpus
+    //             WHERE json = ?1 AND key = ?2
+    //             LIMIT 1",
+    //         params![&self.json, &self.key,],
+    //         |row| {
+    //             let id: isize = row.get(0)?;
+    //             Ok(id)
+    //         },
+    //     );
+    //
+    //     if let Ok(id) = id {
+    //         self.id = id;
+    //         return;
+    //     }
+    //
+    //     // json TEXT NOT NULL,
+    //     // key TEXT NOT NULL,
+    //     // weight REAL NOT NULL,
+    //     // depth INTEGER NOT NULL,
+    //     // parent INTEGER,
+    //     // FOREIGN KEY (parent) REFERENCES corpus(rowid)
+    //     db_conn
+    //         .execute(
+    //             "INSERT INTO corpus (json, key, weight, depth, parent)
+    //             VALUES (?1, ?2, ?3, ?4, ?5)",
+    //             params![
+    //                 &self.json,
+    //                 &self.key,
+    //                 &self.weight.to_string(),
+    //                 &self.depth.to_string(),
+    //                 &self.parent_id,
+    //             ],
+    //         )
+    //         .expect(&format!("Could not add testcase {:?} to corpus", self));
+    //
+    //     self.id = db_conn.last_insert_rowid() as isize;
+    // }
 }
 
 impl Display for TestCase {
@@ -50,7 +121,7 @@ impl Display for TestCase {
             "({} {})  p: {}  w: {}",
             self.json,
             self.key,
-            self.parent_json.clone().unwrap_or("None".to_string()),
+            self.parent_id.unwrap_or(-1).to_string(),
             self.weight
         )
     }
@@ -64,47 +135,27 @@ pub enum Fuzzers {
 }
 
 pub fn create_fuzzers(testcase: &TestCase) -> Vec<Box<dyn Fuzzer>> {
-    let mut ret: Vec<Box<dyn Fuzzer>> = vec![
-        Box::new(ComprehensiveFuzzer::insert_single(testcase)),
-        Box::new(ComprehensiveFuzzer::remove_single(testcase)),
-        Box::new(ComprehensiveFuzzer::insert_unicode(testcase)),
-        Box::new(ComprehensiveFuzzer::replace_unicode(testcase)),
-    ];
+    let mut ret: Vec<Box<dyn Fuzzer>> =
+        vec![Box::new(ComprehensiveFuzzer::insert_grammar(testcase))];
 
-    if testcase.json.len() < 30 {
-        ret.push(Box::new(ComprehensiveFuzzer::insert_two(testcase)));
-        ret.push(Box::new(ComprehensiveFuzzer::remove_two(testcase)));
+    if testcase.weight <= 1.0 {
+        ret.push(Box::new(ComprehensiveFuzzer::insert_single(testcase)));
+        ret.push(Box::new(ComprehensiveFuzzer::remove_single(testcase)));
+        // ret.push(Box::new(ComprehensiveFuzzer::insert_single_word(testcase)));
+        // ret.push(Box::new(ComprehensiveFuzzer::replace_single_word(testcase)));
     }
 
-    ret.push(Box::new(Radamsa::new(testcase, None)));
-    ret
-}
-
-pub fn load_testcases() -> Vec<TestCase> {
-    let csv = fs::read_to_string("payloads.csv").expect("Could not read 'payloads.csv'");
-    let mut ret: Vec<TestCase> = Vec::new();
-
-    for (_i, line) in csv.lines().enumerate() {
-        let mut spl = line.splitn(2, "\t");
-        let json = spl.next();
-        let key = spl.next();
-
-        if json.is_none() || key.is_none() {
-            continue;
-        }
-
-        let json = json.unwrap();
-        let key = key.unwrap();
-        // let digest = format!("{:x}", md5::compute(&json))[0..16].to_string();
-
-        ret.push(TestCase {
-            weight: 0.0,
-            parent_json: None,
-            depth: 0,
-            json: json.to_string(),
-            key: key.to_string(),
-        });
-    }
+    // if testcase.depth == 0 {
+    //     ret.push(Box::new(ComprehensiveFuzzer::insert_unicode(testcase)));
+    //     ret.push(Box::new(ComprehensiveFuzzer::replace_unicode(testcase)));
+    //
+    //     if testcase.json.len() < 30 {
+    //         ret.push(Box::new(ComprehensiveFuzzer::insert_two(testcase)));
+    //         ret.push(Box::new(ComprehensiveFuzzer::remove_two(testcase)));
+    //     }
+    //
+    //     ret.push(Box::new(Radamsa::new(testcase, None)));
+    // }
 
     ret
 }

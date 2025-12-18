@@ -9,7 +9,8 @@ def std_parser(encoded, key)
 
   return KEY_NOT_FOUND if !data.key?(key) || data[key].nil?
 
-  data[key].to_s.b
+  JSON.generate(data[key])
+  # data[key].to_s.b
 rescue StandardError
   PARSE_ERROR
 end
@@ -54,11 +55,11 @@ end
 at_exit { sock.close if sock }
 
 # Send parser name (padded to 64 bytes)
-name_buffer = "\x00" * 64
-name_buffer[0, parser_name.bytesize] = parser_name
-written = sock.write(name_buffer)
+info_buf = "\x00" * 65
+info_buf[0, parser_name.bytesize] = parser_name
+written = sock.write(info_buf)
 
-if written != name_buffer.bytesize
+if written != info_buf.bytesize
   puts 'Ruby: Could not write all name bytes'
   exit(1)
 end
@@ -105,9 +106,9 @@ loop do
                 exit(1)
               end
     end_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    micros = (end_time - start_time) * 1_000_000
+    ns = (end_time - start_time) * 100_000_000
 
-    write_buffer[write_offset, 4] = [micros].pack('V')
+    write_buffer[write_offset, 4] = [ns].pack('V')
     write_offset += 4
 
     write_buffer[write_offset, 2] = [message.bytesize].pack('v')

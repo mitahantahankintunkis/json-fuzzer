@@ -1,25 +1,33 @@
-# Rust - fuzzer dependency caching
-FROM rust:latest AS fuzzer-base
-RUN cargo install cargo-chef --version ^0.1
-
-FROM fuzzer-base AS fuzzer-planner
-WORKDIR /app
-# COPY . .
-# RUN cargo install --path fuzzer
-COPY programs/fuzzer .
-RUN cargo chef prepare --recipe-path recipe.json
+# # Rust - fuzzer dependency caching
+# FROM rust:latest AS fuzzer-base
+# RUN cargo install cargo-chef --version ^0.1
+#
+# FROM fuzzer-base AS fuzzer-planner
+# WORKDIR /app
+# # COPY . .
+# # RUN cargo install --path fuzzer
+# COPY programs/fuzzer .
+# RUN cargo chef prepare --recipe-path recipe.json
 
 # Rust - fuzzer
-FROM fuzzer-base AS fuzzer
+FROM rust:latest AS fuzzer
 WORKDIR /app
 
-COPY --from=fuzzer-planner /app/recipe.json recipe.json
-RUN cargo chef cook --release --recipe-path recipe.json
+# COPY --from=fuzzer-planner /app/recipe.json recipe.json
+# RUN cargo chef cook --release --recipe-path recipe.json
+COPY ./programs/fuzzer/Cargo.toml .
+RUN mkdir src && touch ./src/lib.rs && cargo build --release && rm ./src/lib.rs
 
-COPY programs/fuzzer .
+COPY ./programs/fuzzer/src ./src/
+
+RUN rm ./target/release/deps/json_fuzzer*
+RUN cargo build --release
+
 RUN cargo install --path .
+
 # COPY programs/fuzzer ./fuzzer
 # RUN cargo install --path fuzzer
+
 
 # Rust - test server
 FROM rust:latest AS test-server
@@ -27,11 +35,21 @@ WORKDIR /app
 COPY programs/test-server ./test-server
 RUN cargo install --path test-server
 
+
 # Rust - client
 FROM rust:latest AS rust-client
 WORKDIR /app
-COPY programs/clients/rust ./rust
-RUN cargo install --path rust
+COPY ./programs/clients/rust/Cargo.toml .
+RUN mkdir src && touch ./src/lib.rs && cargo build --release && rm ./src/lib.rs
+
+COPY ./programs/clients/rust/src ./src/
+
+RUN rm ./target/release/deps/rust_client*
+RUN cargo build --release
+
+RUN cargo install --path .
+
+
 
 # https://stackoverflow.com/questions/58473606/cache-rust-dependencies-with-docker-build
 #	--mount=type=cache,target=/usr/local/cargo/registry \
@@ -91,27 +109,40 @@ RUN mvn clean compile assembly:single && \
 
 
 # C++
-FROM ubuntu:latest AS cpp
+FROM ubuntu:24.04 AS cpp
 
 RUN --mount=target=/var/lib/apt,type=cache,sharing=locked \
     --mount=target=/var/cache/apt,type=cache,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
 	apt-get update && \
-	apt-get install -y cmake g++ libjansson-dev libyajl-dev git libjson-c-dev libpoco-dev
+	apt-get install -y cmake clang g++ libjansson-dev libyajl-dev git libjson-c-dev libpoco-dev libstdc++-12-dev
+	# llvm-14 libllvm14 llvm-14-dev llvm-14-linker-tools llvm-14-tools llvm-14-runtime
+	# llvm-14
+	#llvm-14-tools llvm-15-linker-tools
+	# apt-get install -y cmake g++ libjansson-dev libyajl-dev git libjson-c-dev libpoco-dev
 
 
 # RUN --mount=target=/root/.cache/fuzzer,type=cache,sharing=locked \
 # 	git clone --depth 1 https://github.com/boostorg/json.git && mv json boost-json
 
+ENV CC=/usr/bin/clang
+ENV CXX=/usr/bin/clang++
+# ENV ASAN_SYMBOLIZER_PATH=/usr/bin/llvm-symbolizer-14
+# ENV ASAN_OPTIONS=external_symbolizer_path=/usr/bin/llvm-symbolizer-14
+
 WORKDIR /app
 ADD https://archives.boost.io/release/1.82.0/source/boost_1_82_0.tar.gz .
 RUN tar -xf boost_1_82_0.tar.gz
 
-COPY ./programs/clients/cpp ./cpp
+COPY ./programs/clients/cpp/src ./src
+COPY ./programs/clients/cpp/CMakeLists.txt .
+# Ignores .dockerignore for some reason
+# COPY ./programs/clients/cpp ./cpp
+
 # RUN --mount=target=~/root/.cache/fuzzer,type=cache,sharing=locked \
 # 	wget https://archives.boost.io/release/1.82.0/source/boost_1_82_0.tar.gz && \
 
-WORKDIR /app/cpp/build
+WORKDIR /app/build
 RUN cmake .. && make && cp cpp_client /usr/local/bin/cpp-client
 
 
@@ -132,7 +163,7 @@ RUN dotnet publish -o out
 
 # Python
 # FROM python:3.14-trixie AS python-client
-FROM ubuntu:latest AS python-client
+FROM ubuntu:24.04 AS python-client
 ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app/
@@ -152,7 +183,7 @@ RUN pip3 install -Ur requirements.txt
 
 
 # Radamsa
-FROM ubuntu:latest AS radamsa
+FROM ubuntu:24.04 AS radamsa
 
 WORKDIR /app
 
@@ -166,7 +197,7 @@ RUN git clone https://gitlab.com/akihe/radamsa.git && cd radamsa && make && cp b
 
 
 # Final
-FROM ubuntu:latest
+FROM ubuntu:24.04
 
 WORKDIR /app
 
@@ -177,7 +208,9 @@ RUN --mount=target=/var/lib/apt,type=cache,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
 	apt-get update && \
 	apt-get install -y lua5.4 luarocks openjdk-21-jre php ruby python3 python3-pip python3.12-venv valgrind \
-			libyajl-dev dotnet-runtime-8.0 libpoco-dev
+			libyajl-dev dotnet-runtime-8.0 libpoco-dev \
+			llvm-14 clang postgresql postgresql-contrib sudo
+			# llvm-14 libllvm14 llvm-14-dev llvm-14-linker-tools llvm-14-tools llvm-14-runtime
 
 	# python3 -m venv venv
 	# source ./venv/bin/activate
@@ -190,12 +223,18 @@ RUN --mount=target=/var/lib/apt,type=cache,sharing=locked \
 RUN luarocks install luasocket && \
 	luarocks install lua-cjson
 
+RUN systemctl enable postgresql && service postgresql start && \
+	sudo -u postgres psql -c "CREATE ROLE root LOGIN PASSWORD 'root';" && \
+	sudo -u postgres psql -c "CREATE DATABASE test WITH OWNER = root;"
+
 COPY ./programs/clients/python/main.py ./python/main.py
 COPY --from=python-client /opt/venv /opt/venv
 
 # Enable venv
 ENV VIRTUAL_ENV=/opt/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+# ENV ASAN_SYMBOLIZER_PATH=/usr/bin/llvm-symbolizer-14
+# ENV ASAN_OPTIONS=external_symbolizer_path=/usr/bin/llvm-symbolizer-14
 
 #COPY ./programs/clients/python/requirements.txt ./python/requirements.txt
 
@@ -227,6 +266,7 @@ COPY ./programs/run.sh .
 COPY ./programs/payloads.csv .
 # COPY ./programs/payloads_dos.toml .
 COPY ./scripts/analyze.sh .
+
 
 # Rust
 # WORKDIR /tmp

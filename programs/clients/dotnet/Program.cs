@@ -1,6 +1,7 @@
 ﻿using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using Newtonsoft.Json;
 
 class Program
 {
@@ -17,6 +18,7 @@ class Program
 
         var parsers = new (string name, Func<string, string, string> fn)[] {
             ("dotnet_std", ParseStd),
+            ("dotnet_newtonsoft", ParseNewtonsoft),
         };
 
         if (parserNumber >= parsers.Length) return 1;
@@ -47,10 +49,10 @@ class Program
         using (var networkStream = new NetworkStream(socket, ownsSocket: false))
         {
             // Send name padded to 64 bytes with NULs
-            var nameBytes = new byte[64];
-            var name_bytes = Encoding.UTF8.GetBytes(name);
-            Array.Copy(name_bytes, nameBytes, Math.Min(name_bytes.Length, 64));
-            networkStream.Write(nameBytes, 0, nameBytes.Length);
+            var infoBuf = new byte[65];
+            var nameBytes = Encoding.UTF8.GetBytes(name);
+            Array.Copy(nameBytes, infoBuf, Math.Min(nameBytes.Length, 64));
+            networkStream.Write(infoBuf, 0, infoBuf.Length);
             networkStream.Flush();
 
             var headerBuf = new byte[9];
@@ -101,13 +103,13 @@ class Program
                     string data = Encoding.UTF8.GetString(readBuffer, readOffset, json_size);
                     readOffset += json_size;
 
-                    watch.Reset();
+                    watch.Restart();
                     string message = parserFn(data, key);
-                    UInt32 elapsed = (UInt32)watch.Elapsed.TotalMicroseconds;
+                    UInt32 elapsed = (UInt32)(watch.Elapsed.TotalNanoseconds / 10);
 
-                    var micros_bytes = BitConverter.GetBytes(elapsed);
-                    if (BitConverter.IsLittleEndian) Array.Reverse(micros_bytes);
-                    Array.Copy(micros_bytes, 0, writeBuffer, writeOffset, 4);
+                    var ns_bytes = BitConverter.GetBytes(elapsed);
+                    // if (BitConverter.IsLittleEndian) Array.Reverse(ns_bytes);
+                    Array.Copy(ns_bytes, 0, writeBuffer, writeOffset, 4);
                     writeOffset += 4;
 
                     var msgBytes = Encoding.UTF8.GetBytes(message);
@@ -151,14 +153,24 @@ class Program
                 {
                     case JsonValueKind.String:
                         // Console.Out.Write(el.GetString());
-                        return el.GetString() ?? PARSE_ERROR;
+                        var ret = el.GetString();
+
+                        if (ret == null)
+                        {
+                            return PARSE_ERROR;
+                        }
+                        else
+                        {
+                            return "\"" + ret + "\"";
+                        }
+
                     case JsonValueKind.Number:
-                        return el.GetRawText();
-                    case JsonValueKind.True:
-                    case JsonValueKind.False:
-                        return el.GetRawText();
-                    case JsonValueKind.Null:
-                        return "null";
+                        return el.GetDouble().ToString();
+                    // case JsonValueKind.True:
+                    // case JsonValueKind.False:
+                    //     return el.GetRawText();
+                    // case JsonValueKind.Null:
+                    //     return "null";
                     default:
                         return el.GetRawText();
                 }
@@ -170,34 +182,57 @@ class Program
             return PARSE_ERROR;
         }
     }
+
+    static string ParseNewtonsoft(string data, string key)
+    {
+        try
+        {
+            QueryDouble? parsed = JsonConvert.DeserializeObject<QueryDouble>(data);
+
+            if (parsed == null)
+            {
+                return PARSE_ERROR;
+            }
+
+            if (parsed.q == null)
+            {
+                return KEY_NOT_FOUND;
+            }
+
+            return parsed.q.ToString() ?? PARSE_ERROR;
+        }
+        catch (Exception) { }
+
+        try
+        {
+            QueryString? parsed_str = JsonConvert.DeserializeObject<QueryString>(data);
+
+            if (parsed_str == null)
+            {
+                return PARSE_ERROR;
+            }
+
+            if (parsed_str.q == null)
+            {
+                return KEY_NOT_FOUND;
+            }
+
+            return "\"" + parsed_str.q + "\"";
+        }
+        catch (Exception)
+        {
+            return PARSE_ERROR;
+        }
+    }
 }
 
-// static string ParseNewtonsoft(string data, string key)
-// {
-//     // try
-//     // {
-//     //     using (JsonDocument doc = JsonDocument.Parse(data))
-//     //     {
-//     //         if (!doc.RootElement.TryGetProperty(key, out JsonElement el)) return KEY_NOT_FOUND;
-//     //
-//     //         switch (el.ValueKind)
-//     //         {
-//     //             case JsonValueKind.String:
-//     //                 return el.GetString() ?? PARSE_ERROR;
-//     //             case JsonValueKind.Number:
-//     //                 return el.GetRawText();
-//     //             case JsonValueKind.True:
-//     //             case JsonValueKind.False:
-//     //                 return el.GetRawText();
-//     //             case JsonValueKind.Null:
-//     //                 return "null";
-//     //             default:
-//     //                 return el.GetRawText();
-//     //         }
-//     //     }
-//     // }
-//     // catch (JsonException)
-//     // {
-//     return PARSE_ERROR;
-//     // }
-// }
+class QueryDouble
+{
+    public double? q;
+}
+
+
+class QueryString
+{
+    public string? q;
+}

@@ -27,7 +27,7 @@ $parse_std = function(string $data, string $key): string {
     }
 
     if (is_array($parsed) && array_key_exists($key, $parsed)) {
-        return @strval($parsed[$key]);
+        return @json_encode($parsed[$key]);
     }
 
     return KEY_NOT_FOUND;
@@ -59,8 +59,8 @@ while (true) {
     usleep(100000);
 }
 
-$name_buffer = str_pad($name, 64, "\0", STR_PAD_RIGHT);
-fwrite($socket, $name_buffer);
+$info_buf = str_pad($name, 65, "\0", STR_PAD_RIGHT);
+fwrite($socket, $info_buf);
 
 $read_buffer  = "";
 $write_buffer = "";
@@ -102,11 +102,11 @@ while (true) {
 		$start = hrtime(true);
 		$parsed = $parser_fn($data, $key);
 		$end = hrtime(true);
-		$micros = ($end - $start) / 1000;
+		$ns = ($end - $start) / 10;
 
-        $micros_bytes = pack("V", $micros);
+        $ns_bytes = pack("V", $ns);
 		for ($i = 0; $i < 4; ++$i) {
-			$write_buffer[$write_offset + $i] = $micros_bytes[$i];
+			$write_buffer[$write_offset + $i] = $ns_bytes[$i];
 		}
 
         $write_offset += 4;

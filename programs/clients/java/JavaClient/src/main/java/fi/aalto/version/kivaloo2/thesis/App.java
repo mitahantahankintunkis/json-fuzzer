@@ -58,10 +58,10 @@ public class App {
              OutputStream out = s.getOutputStream()) {
 
             // Send name padded to 64 bytes with NULs
-            byte[] nameBytes = new byte[64];
+            byte[] infoBuf = new byte[65];
             byte[] name_utf = parser.getName().getBytes(StandardCharsets.UTF_8);
-            System.arraycopy(name_utf, 0, nameBytes, 0, Math.min(name_utf.length, 64));
-            out.write(nameBytes);
+            System.arraycopy(name_utf, 0, infoBuf, 0, Math.min(name_utf.length, 64));
+            out.write(infoBuf);
             out.flush();
 
             byte[] headerBuf = new byte[9];
@@ -102,16 +102,16 @@ public class App {
 					long start = System.nanoTime();
                     String message = parser.parse(readBuffer, readOffset, jsonSize, key);
 					long end = System.nanoTime();
-					int micros = (int)((end - start) / 1000);
+					long ns = (end - start) / 10;
 
 					// System.out.println(key + " " + new String(readBuffer, readOffset, jsonSize, StandardCharsets.UTF_8) + " " + message);
 
                     readOffset += jsonSize;
 
-                    writeBuffer[writeOffset + 0] = (byte)(micros & 0xFF);
-                    writeBuffer[writeOffset + 1] = (byte)((micros >> 8) & 0xFF);
-                    writeBuffer[writeOffset + 2] = (byte)((micros >> 16) & 0xFF);
-                    writeBuffer[writeOffset + 3] = (byte)((micros >> 24) & 0xFF);
+                    writeBuffer[writeOffset + 0] = (byte)(ns & 0xFF);
+                    writeBuffer[writeOffset + 1] = (byte)((ns >> 8) & 0xFF);
+                    writeBuffer[writeOffset + 2] = (byte)((ns >> 16) & 0xFF);
+                    writeBuffer[writeOffset + 3] = (byte)((ns >> 24) & 0xFF);
                     writeOffset += 4;
 
                     byte[] msgBytes = message.getBytes(StandardCharsets.UTF_8);

@@ -222,6 +222,57 @@ impl ComprehensiveFuzzer {
         ret.into()
     }
 
+    pub fn insert_single_word(test_case: &TestCase) -> Self {
+        let mut ret = PayloadConfig {
+            name: "insert_single_word".to_string(),
+            json: test_case.json.clone(),
+            datatype: Datatype::Int,
+            key: test_case.key.clone(),
+            fuzz: vec![FuzzConfig::default()],
+        };
+
+        ret.fuzz[0].map = Some(FuzzMapConfig::Word { byte_count: 2 });
+
+        ret.into()
+    }
+
+    pub fn replace_single_word(test_case: &TestCase) -> Self {
+        let mut ret = PayloadConfig {
+            name: "replace_single_word".to_string(),
+            json: test_case.json.clone(),
+            datatype: Datatype::Int,
+            key: test_case.key.clone(),
+            fuzz: vec![FuzzConfig::default()],
+        };
+
+        ret.fuzz[0].map = Some(FuzzMapConfig::Word { byte_count: 2 });
+        ret.fuzz[0].remove_after = 1;
+
+        ret.into()
+    }
+
+    pub fn insert_grammar(test_case: &TestCase) -> Self {
+        let mut ret = PayloadConfig {
+            name: "insert_grammar".to_string(),
+            json: test_case.json.clone(),
+            datatype: Datatype::Int,
+            key: test_case.key.clone(),
+            fuzz: vec![FuzzConfig::default(), FuzzConfig::default()],
+        };
+
+        ret.fuzz[0].map = Some(FuzzMapConfig::Characters {
+            chars: "09e.-[]{}\",".to_string(),
+            byte_count: 1,
+        });
+        ret.fuzz[1].map = Some(FuzzMapConfig::Characters {
+            chars: "09e.-[]{}\",".to_string(),
+            byte_count: 1,
+        });
+        // ret.fuzz[0].remove_after = 1;
+
+        ret.into()
+    }
+
     // Goes through all fuzz byte placements until it finds a valid one
     pub fn init(&mut self) -> Result<(), ()> {
         if self.fuzz.len() == 0 {

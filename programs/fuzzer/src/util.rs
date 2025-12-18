@@ -1,4 +1,6 @@
 #![allow(unused)]
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use regex::Regex;
 
 pub fn byte_to_string(byte: u8) -> String {
@@ -31,4 +33,31 @@ pub fn decode_str(s: &str) -> Vec<u8> {
     bytes.extend_from_slice(s[prev..].as_bytes());
 
     bytes
+}
+
+pub enum TimeType {
+    Nanos,
+    Micros,
+    Millis,
+    Secs,
+    Mins,
+}
+
+pub fn ns_to_string(ns: f64) -> (String, TimeType) {
+    match ns.abs() {
+        0.0..1000.0 => (format!("{:.0}ns", ns), TimeType::Nanos),
+        1000.0..1000_000.0 => (format!("{:.0}µs", ns / 1000.0), TimeType::Micros),
+        1000_000.0..1000_000_000.0 => (format!("{:.0}ms", ns / 1000_000.0), TimeType::Millis),
+        1000_000_000.0..60_000_000_000.0 => {
+            (format!("{:.0}s", ns / 1000_000_000.0), TimeType::Secs)
+        }
+        _ => (format!("{:.0}m", ns / 60_000_000_000.0), TimeType::Mins),
+    }
+}
+
+pub fn unixtime() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64
 }

@@ -1,7 +1,8 @@
+#[derive(Debug)]
 pub struct Encoder {
     pub bytes: Box<Vec<u8>>,
     pub prev_added: Option<Vec<u8>>,
-    pub prev_count: u32,
+    pub repeats: u32,
     pub uncompressed_bytes: u64,
     pub message_count: u64,
 }
@@ -19,7 +20,7 @@ impl Encoder {
         Encoder {
             bytes: Box::new(Vec::with_capacity(1_000_000)),
             prev_added: None,
-            prev_count: 0,
+            repeats: 0,
             uncompressed_bytes: 0,
             message_count: 0,
         }
@@ -28,7 +29,7 @@ impl Encoder {
     fn write_prev(&mut self) {
         if let Some(prev_added) = &self.prev_added {
             // Repeats
-            for byte in self.prev_count.to_le_bytes() {
+            for byte in self.repeats.to_le_bytes() {
                 self.bytes.push(byte);
             }
 
@@ -48,7 +49,7 @@ impl Encoder {
             }
         }
 
-        self.prev_count = 0;
+        self.repeats = 0;
         self.prev_added = None;
     }
 
@@ -61,21 +62,21 @@ impl Encoder {
                 let equal = bytes.len() == prev_added.len()
                     && prev_added.iter().zip(bytes).all(|(a, b)| a == b);
 
-                if !equal {
+                if equal {
+                    self.repeats += 1;
+                }
+
+                if !equal || self.repeats == u32::MAX {
                     self.write_prev();
                     self.prev_added = Some(bytes.to_vec());
+                    self.repeats = 1;
                 }
             }
             None => {
                 self.prev_added = Some(bytes.to_vec());
+                self.repeats = 1;
             }
         };
-
-        self.prev_count += 1;
-
-        if self.prev_count == u32::MAX {
-            self.write_prev();
-        }
     }
 
     pub fn finish(&mut self) -> &Box<Vec<u8>> {
@@ -119,8 +120,10 @@ impl Decoder {
                 u32::from_le_bytes(length_bytes.try_into().unwrap_unchecked()) as usize;
 
             let data = &self.bytes[(state.message_index + 8)..(state.message_index + 8 + length)];
-
-            let str = std::str::from_utf8_unchecked(&data);
+            let str = match std::str::from_utf8(&data) {
+                Ok(r) => r,
+                Err(_) => "UTF8_ERROR",
+            };
 
             state.cur_repeat += 1;
 
@@ -128,6 +131,7 @@ impl Decoder {
                 state.cur_repeat = 0;
                 state.message_index += length + 8;
             }
+
             return Some(str);
         }
     }
@@ -150,7 +154,11 @@ impl Decoder {
 
             let data = &self.bytes[(self.message_index + 8)..(self.message_index + 8 + length)];
 
-            let str = std::str::from_utf8_unchecked(&data);
+            // let str = std::str::from_utf8_unchecked(&data);
+            let str = match std::str::from_utf8(&data) {
+                Ok(r) => r,
+                Err(_) => "UTF8_ERROR",
+            };
 
             self.cur_repeat += 1;
             self.messages_parsed += 1;
@@ -177,7 +185,11 @@ impl Decoder {
 
             let data = &self.bytes[(self.message_index + 8)..(self.message_index + 8 + length)];
 
-            let str = std::str::from_utf8_unchecked(&data);
+            // let str = std::str::from_utf8_unchecked(&data);
+            let str = match std::str::from_utf8(&data) {
+                Ok(r) => r,
+                Err(_) => "UTF8_ERROR",
+            };
 
             return Some(str);
         }
@@ -190,7 +202,9 @@ mod tests {
 
     #[test]
     fn test_empty() {
-        let enc = Encoder::new();
+        let mut enc = Encoder::new();
+        enc.finish();
+
         let mut dec = Decoder::new(Box::new(*enc.bytes));
         assert!(dec.next_message() == None);
     }

@@ -1,13 +1,15 @@
 cmake_minimum_required(VERSION 3.10)
 set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+#set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_CXX_FLAGS "-g -O3 -Wall -Werror")
+set(CMAKE_CXX_FLAGS "-Wall -Werror -O3")
+# set(CMAKE_CXX_FLAGS "-g -O3 -Wall -Werror -fsanitize-coverage=trace-pc-guard")
 #set(CMAKE_CXX_FLAGS "-g -O3 -Wall -Werror -ggdb -fsanitize=address -fno-omit-frame-pointer -static-libstdc++ -static-libasan -lrt")
 
 project(cpp_client VERSION 1.0)
 # file(GLOB_RECURSE SRC_FILES ..)
-file(GLOB SRC_FILES ./src/*.h, ./src/lib/*.h ./src/*.cc ./src/lib/*.c ./src/lib/*.cc ./src/lib/vincenthz/*)
+file(GLOB SRC_FILES ./src/*.h, ./src/lib/*.h ./src/*.cpp ./src/lib/*.c ./src/lib/*.cc ./src/lib/vincenthz/* ./src/lib/nlohmann/* ./src/lib/mongoose/mongoose.c)
+# file(GLOB SRC_FILES ./src/coverage.cc ./src/*.h, ./src/lib/*.h ./src/*.cpp ./src/lib/*.c ./src/lib/*.cc ./src/lib/vincenthz/* ./src/lib/nlohmann/*)
 #file(GLOB LIB_FILES ./lib/*.cc ./lib/*.h ./lib/*.c)
 add_executable(cpp_client ${SRC_FILES})
 #file(GLOB LIB_FILES ./lib/*.cc ./lib/*.h ./lib/*.c)
@@ -25,10 +27,68 @@ target_include_directories(cpp_client PRIVATE ./boost_1_82_0/)
 
 target_link_libraries(cpp_client -lyajl -ljansson -lm -ljson-c)
 target_link_libraries(cpp_client Poco::JSON)
+
+# SanitizerCoverage flags
+set(SANITIZER_COVERAGE_FLAGS
+    -fsanitize-coverage=trace-pc-guard,trace-cmp
+    -fno-omit-frame-pointer
+    -O3
+    -g
+)
+
+target_compile_options(cpp_client PRIVATE ${SANITIZER_COVERAGE_FLAGS})
+target_link_options(cpp_client PRIVATE ${SANITIZER_COVERAGE_FLAGS})
+
+
 #target_link_libraries(cpp_client Boost::json)
 # -lm -g -O3 -Wall -Werror -ljansson
 #target_include_directories(cpp_client PRIVATE ${CMAKE_CURRECT_SOURCE_DIR}/include)
 #target_include_directories(cpp_client PUBLIC ${CMAKE_CURRECT_SOURCE_DIR}/modsecurity_mock)
+
+
+# project(MyInstrumentedApp CXX)
+
+# Force Clang if needed
+# set(CMAKE_CXX_COMPILER clang++)
+
+# SanitizerCoverage flags
+# set(SANITIZER_COVERAGE_FLAGS
+#     -fsanitize-coverage=trace-pc-guard
+#     -fno-omit-frame-pointer
+#     -O1
+#     -g
+# )
+# 
+# # Apply instrumentation to all sources in this target
+# add_executable(myapp
+#     main.cpp
+#     foo.cpp
+#     bar.cpp
+#     cov_hooks.cpp   # <-- your hook implementation goes here
+# )
+# 
+# # Add instrumentation flags
+# target_compile_options(myapp PRIVATE ${SANITIZER_COVERAGE_FLAGS})
+# target_link_options(myapp PRIVATE ${SANITIZER_COVERAGE_FLAGS})
+# 
+# # Export symbols so shared libs can resolve __sanitizer_cov_* symbols
+# if(UNIX AND NOT APPLE)
+#     target_link_options(myapp PRIVATE -rdynamic)
+# elseif(APPLE)
+#     target_link_options(myapp PRIVATE -Wl,-export_dynamic)
+# endif()
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # all:

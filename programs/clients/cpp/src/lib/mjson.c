@@ -801,8 +801,11 @@ static double mystrtod(const char *str, const char **end) {
       goto done;
     }
 #endif
-    for (i = 0; i < e; i++) d *= 10;
-    for (i = 0; i < -e; i++) d /= 10;
+	if (e > 0) d = pow(d, e);
+	else d = pow(d, -e);
+
+    // for (i = 0; i < e; i++) d *= 10;
+    // for (i = 0; i < -e; i++) d /= 10;
     a = p;
   } else if (p > str && !is_digit(*(p - 1))) {
     a = str;
@@ -814,54 +817,54 @@ done:
   return d;
 }
 
-#if MJSON_ENABLE_MERGE
-int mjson_merge(const char *s, int n, const char *s2, int n2,
-                mjson_print_fn_t fn, void *userdata) {
-  int koff, klen, voff, vlen, t, t2, k, off = 0, len = 0, comma = 0;
-  if (n < 2) return len;
-  len += fn("{", 1, userdata);
-  while ((off = mjson_next(s, n, off, &koff, &klen, &voff, &vlen, &t)) != 0) {
-    char *path = (char *) alloca((size_t) klen + 1);
-    const char *val;
-    memcpy(path, "$.", 2);
-    memcpy(path + 2, s + koff + 1, (size_t) (klen - 2));
-    path[klen] = '\0';
-    if ((t2 = mjson_find(s2, n2, path, &val, &k)) != MJSON_TOK_INVALID) {
-      if (t2 == MJSON_TOK_NULL) continue;  // null deletes the key
-    } else {
-      val = s + voff;  // Key is not found in the update. Copy the old value.
-    }
-    if (comma) len += fn(",", 1, userdata);
-    len += fn(s + koff, klen, userdata);
-    len += fn(":", 1, userdata);
-    if (t == MJSON_TOK_OBJECT && t2 == MJSON_TOK_OBJECT) {
-      len += mjson_merge(s + voff, vlen, val, k, fn, userdata);
-    } else {
-      if (t2 != MJSON_TOK_INVALID) vlen = k;
-      len += fn(val, vlen, userdata);
-    }
-    comma = 1;
-  }
-  // Add missing keys
-  off = 0;
-  while ((off = mjson_next(s2, n2, off, &koff, &klen, &voff, &vlen, &t)) != 0) {
-    char *path = (char *) alloca((size_t) klen + 1);
-    const char *val;
-    if (t == MJSON_TOK_NULL) continue;
-    memcpy(path, "$.", 2);
-    memcpy(path + 2, s2 + koff + 1, (size_t) (klen - 2));
-    path[klen] = '\0';
-    if (mjson_find(s, n, path, &val, &vlen) != MJSON_TOK_INVALID) continue;
-    if (comma) len += fn(",", 1, userdata);
-    len += fn(s2 + koff, klen, userdata);
-    len += fn(":", 1, userdata);
-    len += fn(s2 + voff, vlen, userdata);
-    comma = 1;
-  }
-  len += fn("}", 1, userdata);
-  return len;
-}
-#endif  // MJSON_ENABLE_MERGE
+// #if MJSON_ENABLE_MERGE
+// int mjson_merge(const char *s, int n, const char *s2, int n2,
+//                 mjson_print_fn_t fn, void *userdata) {
+//   int koff, klen, voff, vlen, t, t2, k, off = 0, len = 0, comma = 0;
+//   if (n < 2) return len;
+//   len += fn("{", 1, userdata);
+//   while ((off = mjson_next(s, n, off, &koff, &klen, &voff, &vlen, &t)) != 0) {
+//     char *path = (char *) alloca((size_t) klen + 1);
+//     const char *val;
+//     memcpy(path, "$.", 2);
+//     memcpy(path + 2, s + koff + 1, (size_t) (klen - 2));
+//     path[klen] = '\0';
+//     if ((t2 = mjson_find(s2, n2, path, &val, &k)) != MJSON_TOK_INVALID) {
+//       if (t2 == MJSON_TOK_NULL) continue;  // null deletes the key
+//     } else {
+//       val = s + voff;  // Key is not found in the update. Copy the old value.
+//     }
+//     if (comma) len += fn(",", 1, userdata);
+//     len += fn(s + koff, klen, userdata);
+//     len += fn(":", 1, userdata);
+//     if (t == MJSON_TOK_OBJECT && t2 == MJSON_TOK_OBJECT) {
+//       len += mjson_merge(s + voff, vlen, val, k, fn, userdata);
+//     } else {
+//       if (t2 != MJSON_TOK_INVALID) vlen = k;
+//       len += fn(val, vlen, userdata);
+//     }
+//     comma = 1;
+//   }
+//   // Add missing keys
+//   off = 0;
+//   while ((off = mjson_next(s2, n2, off, &koff, &klen, &voff, &vlen, &t)) != 0) {
+//     char *path = (char *) alloca((size_t) klen + 1);
+//     const char *val;
+//     if (t == MJSON_TOK_NULL) continue;
+//     memcpy(path, "$.", 2);
+//     memcpy(path + 2, s2 + koff + 1, (size_t) (klen - 2));
+//     path[klen] = '\0';
+//     if (mjson_find(s, n, path, &val, &vlen) != MJSON_TOK_INVALID) continue;
+//     if (comma) len += fn(",", 1, userdata);
+//     len += fn(s2 + koff, klen, userdata);
+//     len += fn(":", 1, userdata);
+//     len += fn(s2 + voff, vlen, userdata);
+//     comma = 1;
+//   }
+//   len += fn("}", 1, userdata);
+//   return len;
+// }
+// #endif  // MJSON_ENABLE_MERGE
 
 #if MJSON_ENABLE_PRETTY
 struct prettydata {

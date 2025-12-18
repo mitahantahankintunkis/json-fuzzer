@@ -31,3 +31,5 @@ boost_1_82_0/
 
 /paper/
 perf.data*
+
+./analyzed/db.sqlite

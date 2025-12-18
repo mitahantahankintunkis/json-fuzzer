@@ -1,29 +1,31 @@
-// Written mostly in C for fun
+// Written mostly in C
 #include <Poco/Dynamic/Var.h>
+#include <arpa/inet.h>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
-#include <iostream>
+#include <netinet/tcp.h>
 #include <stdexcept>
+#include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdlib.h>
 #include <string.h>
 #include <string>
-#include <unistd.h>
-#include <arpa/inet.h>
-#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <sys/un.h>
-#include <stdint.h>
 #include <time.h>
-#include <chrono>
+#include <unistd.h>
+#include <stdint.h>
+#include <stdio.h>
 
-#include <jansson.h>
-#include <Poco/JSON/Parser.h>
 #include <Poco/JSON/Object.h>
+#include <Poco/JSON/Parser.h>
+#include <jansson.h>
 
 //#define BOOST_CONTAINER_NO_LIB
 #include <boost/json/src.hpp>
@@ -34,9 +36,12 @@
 #include "lib/frozen.h"
 #include "lib/jsmn.h"
 #include "lib/nlohmann/json.hpp"
+#include "lib/mongoose/mongoose.h"
 
 #include "json_parser.h"
 #include "json_c_wrapper.h"
+
+#include <sanitizer/coverage_interface.h>
 // #include "vincenthz_wrapper.h"
 
 #define SERVER_ADDR "127.0.0.1"
@@ -45,22 +50,193 @@
 #define PARSE_ERROR "PARSE_ERROR"
 
 
-// enum Mode {
-// 	AccessQ,
-// 	AsIs,
-// 	Time,
-// };
+// std::vector<int> coverage_buf_0 = std::vector<int>();
+// std::vector<int> coverage_buf_1 = std::vector<int>();
+// Coverage information
+uint16_t coverage_n = 0;
+char* coverage_buf = NULL;
+// int* coverage_buf1 = (int*)malloc(coverage_n);
+// int coverage_i = 0;
+// int coverage_i1 = 0;
+bool save_coverage = false;
+bool new_coverage_info = false;
 
-// enum Datatype {
-//     Int,
-//     Float,
-//     String,
-//     Object,
-//     Array,
-//     Null,
-//     Bool,
-// 	Time,
-// };
+// Clears recorded coverage information
+// void start_coverage() {
+// 	coverage_i = 0;
+// 	save_coverage = true;
+// }
+
+// void switch_coverage_buffers() {
+// 	auto temp = coverage_buf;
+// 	coverage_buf = coverage_buf;
+// 	coverage_buf = temp;
+//
+// 	coverage_i = coverage_i;
+// }
+
+// void stop_coverage() {
+// 	save_coverage = false;
+// }
+
+// static const uint32_t Prime1 = 2654435761U;
+// static const uint32_t Prime2 = 2246822519U;
+//
+// /// rotate bits, should compile to a single CPU instruction (ROL)l
+// static inline uint32_t rotateLeft(uint32_t x, unsigned char bits) {   return (x << bits) | (x >> (32 - bits)); }
+// /// process a block of 4x4 bytes, this is the main part of the XXHash32 algorithml
+// static inline void process(const void* data, uint32_t& state0, uint32_t& state1, uint32_t& state2, uint32_t& state3) {   const uint32_t* block = (const uint32_t*) data;   state0 = rotateLeft(state0 + block[0] * Prime2, 13) * Prime1;   state1 = rotateLeft(state1 + block[1] * Prime2, 13) * Prime1;   state2 = rotateLeft(state2 + block[2] * Prime2, 13) * Prime1;   state3 = rotateLeft(state3 + block[3] * Prime2, 13) * Prime1; }
+//
+
+// Boost hash_combine hashing algorithm
+// uint32_t coverage_hash() {
+// 	uint32_t seed = 0x9e3779b9;
+//
+// 	for (int i = 0; i < coverage_i; ++i) {
+// 		seed ^= coverage_buf[i] + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+// 	}
+//
+// 	return seed;
+// }
+
+// __attribute__((no_sanitize("coverage")))
+// __attribute__((noinline))
+// void push_coverage(int i) {
+// 	coverage->push_back(i);
+// }
+
+// Clang's SanitizerCoverage implementation
+// Copied from https://clang.llvm.org/docs/SanitizerCoverage.html
+// This callback is inserted by the compiler as a module constructor
+// into every DSO. 'start' and 'stop' correspond to the
+// beginning and end of the section with the guards for the entire
+// binary (executable or DSO). The callback will be called at least
+// once per DSO and may be called multiple times with the same parameters.
+extern "C" void __sanitizer_cov_trace_pc_guard_init(uint32_t *start,
+													uint32_t *stop) {
+	static uint64_t N;  // Counter for the guards.
+	if (start == stop || *start) return;  // Initialize only once.
+
+	int n = stop - start;
+
+	if (n >= (1 << 16)) {
+		printf("C/C++ Client: Coverage overflow\n");
+		exit(1);
+	}
+
+	if (coverage_n < n) {
+		coverage_n = n;
+		coverage_buf = (char*)realloc(coverage_buf, coverage_n);
+	}
+
+	// printf("INIT: %p %p\n", start, stop);
+	// printf("init: %ld\n", stop - start - 1);
+	for (uint32_t *x = start; x < stop; x++)
+		*x = ++N;  // Guards should start from 1.
+}
+
+// This callback is inserted by the compiler on every edge in the
+// control flow (some optimizations apply).
+// Typically, the compiler will emit the code like this:
+//    if(*guard)
+//      __sanitizer_cov_trace_pc_guard(guard);
+// But for large functions it will emit a simple call:
+//    __sanitizer_cov_trace_pc_guard(guard);
+extern "C" void __sanitizer_cov_trace_pc_guard(uint32_t *guard) {
+	if (!*guard) return;  // Duplicate the guard check.
+	// If you set *guard to 0 this code will not be called again for this edge.
+	// Now you can get the PC and do whatever you want:
+	//   store it somewhere or symbolize it and print right away.
+	// The values of `*guard` are as you set them in
+	// __sanitizer_cov_trace_pc_guard_init and so you can make them consecutive
+	// and use them to dereference an array or a bit vector.
+
+	if (!coverage_buf[*guard - 1]) {
+		coverage_buf[*guard - 1] = 1;
+		new_coverage_info = true;
+	}
+
+	// if (save_coverage && coverage_i < (coverage_n)) {
+	// 	// coverage_buf_0.push_back(*guard);
+	// 	// push_coverage(*guard);
+	// }
+
+	// *guard = 0;
+
+	// void *PC = __builtin_return_address(0);
+	// char PcDescr[1024];
+	// // This function is a part of the sanitizer run-time.
+	// // To use it, link with AddressSanitizer or other sanitizer.
+	// __sanitizer_symbolize_pc(PC, "%p %F %L", PcDescr, sizeof(PcDescr));
+	// printf("guard: %p %x PC %s\n", guard, *guard, PcDescr);
+}
+
+//
+// This callback is inserted by the compiler as a module constructor
+// into every DSO. 'start' and 'stop' correspond to the
+// beginning and end of the section with the guards for the entire
+// binary (executable or DSO). The callback will be called at least
+// once per DSO and may be called multiple times with the same parameters.
+// int coverage_start = -1;
+// int coverage_end = -1;
+
+// extern "C" void __sanitizer_cov_trace_pc_guard_init(uint32_t *start,
+// 													uint32_t *stop) {
+// 	static uint64_t N;  // Counter for the guards.
+// 	if (start == stop || *start) return;  // Initialize only once.
+// 	// printf("INIT: %p %p %ld\n", start, stop, stop - start);
+//
+// 	for (uint32_t *x = start; x < stop; x++)
+// 		*x = ++N;  // Guards should start from 1.
+// }
+//
+// std::vector<int>* coverage = new std::vector<int>();
+// bool save_coverage = false;
+//
+// void start_coverage() {
+// 	coverage->clear();
+// 	save_coverage = true;
+// }
+//
+// void stop_coverage() {
+// 	save_coverage = false;
+// }
+//
+// __attribute__((no_sanitize("coverage")))
+// void push_coverage(int i) {
+// 	coverage->push_back(i);
+// }
+//
+// // This callback is inserted by the compiler on every edge in the
+// // control flow (some optimizations apply).
+// // Typically, the compiler will emit the code like this:
+// //    if(*guard)
+// //      __sanitizer_cov_trace_pc_guard(guard);
+// // But for large functions it will emit a simple call:
+// //    __sanitizer_cov_trace_pc_guard(guard);
+// extern "C" void __sanitizer_cov_trace_pc_guard(uint32_t *guard) {
+// 	if (!*guard) return;  // Duplicate the guard check.
+// 	// If you set *guard to 0 this code will not be called again for this edge.
+// 	// Now you can get the PC and do whatever you want:
+// 	//   store it somewhere or symbolize it and print right away.
+// 	// The values of `*guard` are as you set them in
+// 	// __sanitizer_cov_trace_pc_guard_init and so you can make them consecutive
+// 	// and use them to dereference an array or a bit vector.
+// 	if (save_coverage) {
+// 		// *guard = 0;
+// 		// push_coverage(*guard);
+// 	}
+//
+// 	void *PC = __builtin_return_address(0);
+// 	char PcDescr[1024];
+// 	// This function is a part of the sanitizer run-time.
+// 	// To use it, link with AddressSanitizer or other sanitizer.
+// 	__sanitizer_symbolize_pc(PC, "%p %F %L", PcDescr, sizeof(PcDescr));
+// 	printf("guard: %p %x PC %s\n", guard, *guard, PcDescr);
+// }
+
+
+
 
 int recv_all(int sock, void *buf, size_t len) {
     size_t received = 0;
@@ -86,25 +262,30 @@ int send_all(int sock, const void *buf, size_t len) {
 char* parse_cjson(char* data, int json_size, char* key, int key_size, char* buf, int buf_size) {
     cJSON *parsed = cJSON_Parse(data);
     if (parsed) {
-        cJSON *value = cJSON_GetObjectItemCaseSensitive(parsed, key);
-        char* ret;
-
-        if (cJSON_IsNumber(value) && value->valuedouble) {
-            // if (value->valuedouble == floorf(value->valuedouble)) {
-            //     snprintf((char*)buf, buf_size, "%d", value->valueint);
-            // } else {
-            snprintf((char*)buf, buf_size, "%g", value->valuedouble);
-            // }
-            ret = (char*)buf;
-        } else if (cJSON_IsString(value) && value->valuestring) {
-			strncpy(buf, value->valuestring, buf_size - 1);
-            ret = (char*)buf;
-        } else {
-            ret = (char*)KEY_NOT_FOUND;
-        }
-
+		if (!cJSON_HasObjectItem(parsed, key)) {
         cJSON_Delete(parsed);
-        return ret;
+			return (char*)KEY_NOT_FOUND;
+		}
+
+        cJSON *value = cJSON_GetObjectItemCaseSensitive(parsed, key);
+		cJSON_PrintPreallocated(value, buf, buf_size, false);
+        cJSON_Delete(parsed);
+		return buf;
+
+			//      if (cJSON_IsNumber(value) && value->valuedouble) {
+			//          // if (value->valuedouble == floorf(value->valuedouble)) {
+			//          //     snprintf((char*)buf, buf_size, "%d", value->valueint);
+			//          // } else {
+			//          snprintf((char*)buf, buf_size, "%g", value->valuedouble);
+			//          // }
+			//          ret = (char*)buf;
+			//      } else if (cJSON_IsString(value) && value->valuestring) {
+			// strncpy(buf, value->valuestring, buf_size - 1);
+			//          ret = (char*)buf;
+			//      } else {
+			//          ret = (char*)KEY_NOT_FOUND;
+			//      }
+
     } else {
         return (char*)PARSE_ERROR;
     }
@@ -199,20 +380,41 @@ char* parse_mjson(char* data, int json_size, char* key, int key_size, char* buf,
 char* parse_frozen(char* data, int json_size, char* key, int key_size, char* buf, int buf_size) {
 	char* ret = buf;
 	char* query = (char*)malloc(key_size + 8);
-	sprintf(query, "{%s: %%lf}", key);
+	json_out out = JSON_OUT_BUF(buf, (size_t)buf_size);
 
-	double value;
-	int err = json_scanf(data, json_size, query, &value);
+	double value_dbl;
+	char* value_str;
+	bool value_bool;
+	int err = -1;
+
+	sprintf(query, "{%s: %%lf}", key);
+	if (json_scanf(data, json_size, query, &value_dbl) > 0) {
+		json_printf(&out, "%g", value_dbl);
+		goto end;
+	}
+
+	sprintf(query, "{%s: %%B}", key);
+	if (json_scanf(data, json_size, query, &value_bool) > 0) {
+		json_printf(&out, "%B", value_bool);
+		goto end;
+	}
+
+	sprintf(query, "{%s: %%Q}", key);
+	if (json_scanf(data, json_size, query, &value_str) > 0) {
+		json_printf(&out, "%Q", value_dbl);
+		free(value_str);
+		goto end;
+	}
+
+	ret = (char*)PARSE_ERROR;
+
+end:
+	free(query);
 
 	if (err == 0) {
 		ret = (char*)KEY_NOT_FOUND;
-	} else if (err < 0) {
-		ret = (char*)PARSE_ERROR;
-	} else {
-		snprintf((char*)buf, buf_size, "%g", value);
 	}
 
-	free(query);
 	return ret;
 }
 
@@ -378,6 +580,42 @@ char* parse_nlohmann(char* data, int json_size, char* key, int key_size, char* b
 }
 
 
+char* parse_mongoose(char* data, int json_size, char* key, int key_size, char* buf, int buf_size) {
+	mg_str json = mg_str_n(data, json_size);
+	double num_val;
+	bool bool_val;
+	char* query = (char*)malloc(key_size + 8);
+	char* ret = (char*)PARSE_ERROR;
+
+	sprintf(query, "$.%s", key);
+
+	int toklen;
+	if (mg_json_get(json, query, &toklen) == MG_JSON_NOT_FOUND) {
+		ret = (char*)KEY_NOT_FOUND;
+	} else {
+		if (mg_json_get_num(json, query, &num_val)) {
+			snprintf((char*)buf, buf_size, "%g", num_val);
+			ret = buf;
+		}
+
+		if (mg_json_get_bool(json, query, &bool_val)) {
+			if (bool_val) snprintf((char*)buf, buf_size, "true");
+			else snprintf((char*)buf, buf_size, "false");
+			ret = buf;
+		}
+
+		char* str_val = mg_json_get_str(json, query);
+		if (str_val) {
+			snprintf((char*)buf, buf_size, "%s", str_val);
+			ret = buf;
+		}
+	}
+
+	free(query);
+	return ret;
+}
+
+
 int main(int argc, char* argv[]) {
 	// char* asdf = (char*)"{\"4294967295\":2,\"0\":3}";
 	// char* key0 = (char*)"4294967295";
@@ -388,6 +626,22 @@ int main(int argc, char* argv[]) {
     if (argc == 2) {
         parser_number = atoi(argv[1]);
     }
+
+	// char* buf[1024];
+	// start_coverage();
+	// parse_mjson((char*)"{\"q\":1}", 7, (char*)"q", 1, (char*)buf, 1024);
+	// stop_coverage();
+	// printf("ret: %s\n", (char*)buf);
+	// // int coverage_start = coverage->front();
+	// // int coverage_end = coverage->back();
+	// printf("Coverage: ");
+	// // for (auto c : coverage_buf_0) {
+	// for (int i = 0; i < coverage_i0; ++i) {
+	// 	int c = coverage_buf0[i];
+	// 	printf("%x ", c);
+	// 	// printf("%d ", c - coverage_start);
+	// }
+	// printf("\n");
 
     char* parser_name;
 	char* (*parser_fn)(char*, int, char*, int, char*, int);
@@ -437,6 +691,10 @@ int main(int argc, char* argv[]) {
             parser_name = (char*)"cpp_nlohmann";
 			parser_fn = &parse_nlohmann;
             break;
+        case 11:
+            parser_name = (char*)"cpp_mongoose";
+			parser_fn = &parse_mongoose;
+            break;
         default:
             return 1;
     }
@@ -470,11 +728,13 @@ int main(int argc, char* argv[]) {
     // setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &flag, sizeof(flag));
 
     // Send parser name
-    char name_buf[64] = {0};
-    memcpy(name_buf, parser_name, strlen(parser_name));
+    char info_buf[65] = {0};
+    memcpy(info_buf, parser_name, strlen(parser_name));
+	uint8_t parser_flags = 0b00000001;
+	info_buf[64] = parser_flags;
 
-    if (send_all(sock, name_buf, 64) < 0) {
-        perror("Could not send name");
+    if (send_all(sock, info_buf, 65) < 0) {
+        perror("Could not send header");
         return 1;
     }
 
@@ -558,25 +818,55 @@ int main(int argc, char* argv[]) {
 			read_offset += new_json_len;
 
 			auto start = std::chrono::high_resolution_clock::now();
+			// start_coverage();
 			message = parser_fn(json_str, new_json_len, key, key_len, message_buf, sizeof(message_buf));
+			// stop_coverage();
+
+			//int coverage_start = coverage.front();
+			//int coverage_end = coverage.back();
+			// printf("Coverage: ");
+			// for (auto c : *coverage) {
+			// 	printf("%d ", c);
+			// 	// printf("%d ", c - coverage_start);
+			// }
+			// printf("\n");
 
 			// if (mode == Mode::Time) {
 			// std::cout << json_str << " -> " << message << ": " << ns << std::endl;
 			auto end = std::chrono::high_resolution_clock::now();
-			uint32_t micros = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+			uint64_t elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count() / 10;
+			uint32_t dur = (uint32_t)elapsed;
+			// dur /= 10;
 			// snprintf((char*)buf, buf_size, "%lld", (unsigned long long)ns);
 			// message = buf;
 			// }
 
 			uint16_t msg_len = (uint16_t)strlen(message);
 
-			if (write_size < write_offset + 6 + msg_len) {
+			while (write_size < write_offset + 10 + msg_len + coverage_n) {
 				write_size *= 2;
 				write_buffer = (uint8_t*)realloc(write_buffer, write_size);
 			}
 
-			memcpy(write_buffer + write_offset, &micros, 4);
+			memcpy(write_buffer + write_offset, &dur, 4);
 			write_offset += 4;
+
+			if (new_coverage_info) {
+				new_coverage_info = false;
+
+				memcpy(write_buffer + write_offset, &coverage_n, 2);
+				write_offset += 2;
+
+				memcpy(write_buffer + write_offset, coverage_buf, coverage_n);
+				write_offset += coverage_n;
+
+				// uint32_t cov_hash = coverage_hash();
+				// memcpy(write_buffer + write_offset, &cov_hash, 4);
+				// write_offset += 4;
+			} else {
+				write_buffer[write_offset++] = 0;
+				write_buffer[write_offset++] = 0;
+			}
 
 			memcpy(write_buffer + write_offset, &msg_len, 2);
 			write_offset += 2;
@@ -596,6 +886,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
+	// delete coverage;
     free(json_str);
 	free(key);
 	free(header);

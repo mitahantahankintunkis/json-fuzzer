@@ -22,16 +22,17 @@ import (
 
 var PARSE_ERROR = []byte("PARSE_ERROR")
 var KEY_NOT_FOUND = []byte("KEY_NOT_FOUND")
+var CRITICAL_ERROR = []byte("CRITICAL_ERROR")
 
 type query struct {
-	q *int
+	q *float64
 }
 
 // implement gojay.UnmarshalerJSONObject
 func (q *query) UnmarshalJSONObject(dec *gojay.Decoder, key string) error {
 	switch key {
 	case "q":
-		return dec.IntNull(&q.q)
+		return dec.Float64Null(&q.q)
 	}
 	return nil
 }
@@ -41,61 +42,49 @@ func (q *query) NKeys() int {
 }
 
 type std_query struct {
-	Q *int `json:"q"`
+	Q *float64 `json:"q"`
 }
 
 var std_decoded std_query
 
 func std_parser(encoded []byte, key string) []byte {
-	if key != "q" {
-		var decoded map[string]any
-		err := std_json.Unmarshal(encoded, &decoded)
+	if key == "q" {
+		std_decoded.Q = nil
+		err := std_json.Unmarshal(encoded, &std_decoded)
 
-		if err != nil {
-			return PARSE_ERROR
+		if err == nil {
+			if std_decoded.Q != nil {
+				val, err := std_json.Marshal(std_decoded.Q)
+
+				if err == nil {
+					return val
+				}
+			}
 		}
-
-		parsed, ok := decoded[key]
-
-		if !ok {
-			return KEY_NOT_FOUND
-		}
-
-		return []byte(fmt.Sprint(parsed))
 	}
 
-	std_decoded.Q = nil
-	err := std_json.Unmarshal(encoded, &std_decoded)
+	var decoded map[string]any
+	err := std_json.Unmarshal(encoded, &decoded)
 
 	if err != nil {
 		return PARSE_ERROR
 	}
+	parsed, ok := decoded[key]
 
-	if std_decoded.Q == nil {
+	if !ok {
 		return KEY_NOT_FOUND
 	}
 
-	return []byte(fmt.Sprint(*std_decoded.Q))
+	val, err := std_json.Marshal(parsed)
+	if err != nil {
+		return PARSE_ERROR
+	}
+
+	return val
 }
 
 func francoispqt_gojay_parser(encoded []byte, key string) []byte {
-	if key != "q" {
-		var decoded map[string]any
-		err := gojay.Unmarshal(encoded, &decoded)
-
-		if err != nil {
-			return PARSE_ERROR
-		}
-
-		parsed, ok := decoded[key]
-
-		if !ok {
-			return KEY_NOT_FOUND
-		}
-
-		return []byte(fmt.Sprint(parsed))
-	}
-
+	// if key == "q" {
 	decoded := &query{}
 	err := gojay.UnmarshalJSONObject(encoded, decoded)
 
@@ -106,51 +95,84 @@ func francoispqt_gojay_parser(encoded []byte, key string) []byte {
 	if decoded.q == nil {
 		return KEY_NOT_FOUND
 	}
-	return []byte(fmt.Sprint(*decoded.q))
+
+	// Gojay marshal does not work for some reason
+	val, err := std_json.Marshal(decoded.q)
+
+	if err != nil {
+		return PARSE_ERROR
+	}
+	return val
+
+	// }
+
+	// var decoded map[string]any
+	// err := gojay.Unmarshal(encoded, &decoded)
+	//
+	// if err != nil {
+	// 	return PARSE_ERROR
+	// }
+	//
+	// parsed, ok := decoded[key]
+	//
+	// if !ok {
+	// 	return KEY_NOT_FOUND
+	// }
+	//
+	// val, err := gojay.Marshal(parsed)
+	//
+	// if err != nil {
+	// 	return PARSE_ERROR
+	// }
+	//
+	// return val
 }
 
 var json_iterator_decoded std_query
 
 func json_iterator_parser(encoded []byte, key string) []byte {
-	if key != "q" {
-		var decoded map[string]any
+	if key == "q" {
+		json_iterator_decoded.Q = nil
 		var json = jsoniter.ConfigCompatibleWithStandardLibrary
 		err := json.Unmarshal(encoded, &json_iterator_decoded)
-		// err := std_json.Unmarshal(encoded, &decoded)
 
-		if err != nil {
-			return PARSE_ERROR
+		if err == nil && json_iterator_decoded.Q != nil {
+			val, err := json.Marshal(json_iterator_decoded.Q)
+
+			if err == nil {
+				return val
+			}
 		}
-
-		parsed, ok := decoded[key]
-
-		if !ok {
-			return KEY_NOT_FOUND
-		}
-
-		return []byte(fmt.Sprint(parsed))
 	}
 
-	json_iterator_decoded.Q = nil
-
+	var decoded map[string]any
 	var json = jsoniter.ConfigCompatibleWithStandardLibrary
-	err := json.Unmarshal(encoded, &json_iterator_decoded)
+	err := json.Unmarshal(encoded, &decoded)
+	// err := std_json.Unmarshal(encoded, &decoded)
 
 	if err != nil {
 		return PARSE_ERROR
 	}
 
-	if json_iterator_decoded.Q == nil {
+	parsed, ok := decoded[key]
+
+	if !ok {
 		return KEY_NOT_FOUND
 	}
 
-	return []byte(fmt.Sprint(*json_iterator_decoded.Q))
+	val, err := json.Marshal(parsed)
+
+	if err != nil {
+		return PARSE_ERROR
+	}
+
+	return val
 }
 
 func tidwall_gjson_parser(encoded []byte, key string) []byte {
 	value := gjson.Get(string(encoded[:]), key)
 
-	if !value.Exists() || value.Type != gjson.Number {
+	if !value.Exists() {
 		return KEY_NOT_FOUND
 	}
 
@@ -159,13 +181,15 @@ func tidwall_gjson_parser(encoded []byte, key string) []byte {
 
 // GJSON parser with optional validation
 func tidwall_gjson_safe_parser(encoded []byte, key string) []byte {
-	if !gjson.Valid(string(encoded)) {
+	json := string(encoded)
+
+	if !gjson.Valid(json) {
 		return PARSE_ERROR
 	}
 
-	value := gjson.Get(string(encoded[:]), key)
+	value := gjson.Get(json, key)
 
-	if !value.Exists() || value.Type != gjson.Number {
+	if !value.Exists() {
 		return KEY_NOT_FOUND
 	}
 
@@ -173,13 +197,23 @@ func tidwall_gjson_safe_parser(encoded []byte, key string) []byte {
 }
 
 func buger_jsonparser_parser(encoded []byte, key string) []byte {
-	value, err := jsonparser.GetInt(encoded, key)
-
-	if err != nil {
-		return PARSE_ERROR
+	if value, err := jsonparser.GetInt(encoded, key); err == nil {
+		return fmt.Append(nil, value)
 	}
 
-	return []byte(fmt.Sprint(value))
+	if value, err := jsonparser.GetFloat(encoded, key); err == nil {
+		return fmt.Append(nil, value)
+	}
+
+	if value, err := jsonparser.GetBoolean(encoded, key); err == nil {
+		return fmt.Append(nil, value)
+	}
+
+	if value, err := jsonparser.GetString(encoded, key); err == nil {
+		return fmt.Append(nil, "\"", value, "\"")
+	}
+
+	return PARSE_ERROR
 }
 
 // var simdjson_iter *simdjson.Iter
@@ -257,11 +291,25 @@ func valyala_fastjson_parser(encoded []byte, key string) []byte {
 		return KEY_NOT_FOUND
 	}
 
-	return []byte(fmt.Sprint(decoded.GetInt(key)))
+	value := decoded.Get(key)
+
+	if val, err := value.Int64(); err == nil {
+		return fmt.Append(nil, val)
+	}
+
+	if val, err := value.Float64(); err == nil {
+		return fmt.Append(nil, val)
+	}
+
+	if val, err := value.Bool(); err == nil {
+		return fmt.Append(nil, val)
+	}
+
+	return fmt.Append(nil, decoded.GetInt(key))
 }
 
 func sugawarayuuta_sonnet_parser(encoded []byte, key string) []byte {
-	var decoded map[string]interface{}
+	var decoded map[string]any
 	err := sonnet.Unmarshal(encoded, &decoded)
 
 	if err != nil {
@@ -274,7 +322,12 @@ func sugawarayuuta_sonnet_parser(encoded []byte, key string) []byte {
 		return KEY_NOT_FOUND
 	}
 
-	return []byte(fmt.Sprint(val))
+	ret, err := sonnet.Marshal(val)
+	if err != nil {
+		return PARSE_ERROR
+	}
+	return ret
+	// return []byte(fmt.Sprint(val))
 }
 
 func recv_all(conn net.Conn, buf []byte, n int) error {
@@ -295,6 +348,22 @@ func recv_all(conn net.Conn, buf []byte, n int) error {
 	}
 
 	return nil
+}
+
+func safe_parse(json []byte, key string, parser_fn func([]byte, string) []byte) (output []byte, dur int64) {
+	defer func() {
+		if r := recover(); r != nil {
+			output = CRITICAL_ERROR
+			dur = 0
+		}
+	}()
+
+	start := time.Now()
+	message := parser_fn(json, key)
+	elapsed := time.Since(start)
+	ns := elapsed.Nanoseconds()
+
+	return message, ns
 }
 
 func main() {
@@ -318,29 +387,29 @@ func main() {
 		parser_name = "go_std"
 		parser_fn = std_parser
 	case 1:
-		parser_name = "go_francoispqt_gojay"
+		parser_name = "go_gojay"
 		parser_fn = francoispqt_gojay_parser
 	case 2:
 		parser_name = "go_json_iterator"
 		parser_fn = json_iterator_parser
 	case 3:
-		parser_name = "go_tidwall_gjson"
+		parser_name = "go_gjson"
 		parser_fn = tidwall_gjson_parser
 	case 4:
-		parser_name = "go_tidwall_gjson_safe"
+		parser_name = "go_gjson_safe"
 		parser_fn = tidwall_gjson_safe_parser
 	case 5:
-		parser_name = "go_buger_jsonparser"
+		parser_name = "go_jsonparser"
 		parser_fn = buger_jsonparser_parser
 	// case 6:
 	// 	parser_name = "go_minio_simdjson"
 	// case 7:
 	// 	parser_name = "go-ohler55-ojg"
 	case 6:
-		parser_name = "go_valyala_fastjson"
+		parser_name = "go_fastjson"
 		parser_fn = valyala_fastjson_parser
 	case 7:
-		parser_name = "go_sugawarayuuta_sonnet"
+		parser_name = "go_sonnet"
 		parser_fn = sugawarayuuta_sonnet_parser
 
 	default:
@@ -365,21 +434,22 @@ func main() {
 
 	defer conn.Close()
 
-	name_buffer := make([]byte, 64)
+	info_buf := make([]byte, 65)
 
-	for i := range len(name_buffer) {
-		name_buffer[i] = 0
+	for i := range len(info_buf) {
+		info_buf[i] = 0
 	}
 
-	copy(name_buffer, []byte(parser_name))
-	written_bytes, err := conn.Write(name_buffer)
+	copy(info_buf, []byte(parser_name))
+	info_buf[64] = 0
+	written_bytes, err := conn.Write(info_buf)
 
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	if written_bytes != len(name_buffer) {
+	if written_bytes != len(info_buf) {
 		fmt.Println("Could not write all name bytes")
 		return
 	}
@@ -407,8 +477,9 @@ func main() {
 			read_buffer = make([]byte, max_len)
 		}
 
-		if write_buffer == nil || len(write_buffer) < int(input_buffer_size<<2) {
-			write_buffer = make([]byte, int(input_buffer_size<<2))
+		write_buffer_size := int(max(2048, input_buffer_size<<2))
+		if write_buffer == nil || len(write_buffer) < write_buffer_size {
+			write_buffer = make([]byte, write_buffer_size)
 		}
 
 		recv_all(conn, read_buffer, key_len)
@@ -426,12 +497,9 @@ func main() {
 			json := read_buffer[read_offset : read_offset+json_size]
 			read_offset += json_size
 
-			start := time.Now()
-			message := parser_fn(json, key)
-			elapsed := time.Since(start)
-			micros := elapsed.Microseconds()
+			message, ns := safe_parse(json, key, parser_fn)
 
-			binary.LittleEndian.PutUint32(write_buffer[write_offset:], uint32(micros))
+			binary.LittleEndian.PutUint32(write_buffer[write_offset:], uint32(ns/10))
 			write_offset += 4
 
 			binary.LittleEndian.PutUint16(write_buffer[write_offset:], uint16(len(message)))

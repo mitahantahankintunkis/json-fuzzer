@@ -18,7 +18,7 @@ def parse_json(data, key):
     try:
         parsed = json.loads(data.rstrip(b'\0').decode('utf-8'))
         if key in parsed:
-            return str(parsed[key])
+            return json.dumps(parsed[key])
         else:
             return KEY_NOT_FOUND
     except Exception:
@@ -30,7 +30,7 @@ def parse_simplejson(data, key):
         # parsed = simplejson.load(data)
         parsed = simplejson.loads(data.rstrip(b'\0').decode('utf-8'))
         if key in parsed:
-            return str(parsed[key])
+            return simplejson.dumps(parsed[key])
         else:
             return KEY_NOT_FOUND
     except Exception:
@@ -42,7 +42,7 @@ def parse_ujson(data, key):
         # parsed = simplejson.load(data)
         parsed = ujson.loads(data.rstrip(b'\0').decode('utf-8'))
         if key in parsed:
-            return str(parsed[key])
+            return ujson.dumps(parsed[key])
         else:
             return KEY_NOT_FOUND
     except Exception:
@@ -53,7 +53,7 @@ def parse_orjson(data, key):
     try:
         parsed = orjson.loads(data.rstrip(b'\0').decode('utf-8'))
         if key in parsed:
-            return str(parsed[key])
+            return orjson.dumps(parsed[key]).decode('utf-8')
         else:
             return KEY_NOT_FOUND
     except Exception:
@@ -61,14 +61,18 @@ def parse_orjson(data, key):
 
 
 class Query(msgspec.Struct):
-    q: int
+    q: float
 
 
 def parse_msgspec(data, key):
     try:
         if key == 'q':
             query = msgspec.json.decode(data, type=Query)
-            return str(query.q)
+
+            if query.q == int(query.q):
+                return json.dumps(int(query.q))
+
+            return json.dumps(query.q)
         else:
             return PARSE_ERROR
 
@@ -79,7 +83,7 @@ def parse_msgspec(data, key):
 def parse_rapidjson(data, key):
     try:
         query = rapidjson.loads(data)
-        return str(query[key])
+        return json.dumps(query[key])
 
     except Exception:
         return PARSE_ERROR
@@ -124,8 +128,8 @@ def main():
         except OSError:
             time.sleep(0.1)
 
-    name_buffer = name.ljust(64, b'\0')
-    s.sendall(name_buffer)
+    info_buf = name.ljust(65, b'\0')
+    s.sendall(info_buf)
 
     read_buffer = bytearray()
     write_buffer = bytearray()
@@ -174,10 +178,10 @@ def main():
             start = time.perf_counter_ns()
             message = parser_fn(data, key)
             end = time.perf_counter_ns()
-            micros = (end - start) / 1000
+            ns = (end - start) / 10
 
-            micros_bytes = struct.pack('<I', int(micros))
-            write_buffer[write_offset:write_offset + 4] = micros_bytes
+            ns_bytes = struct.pack('<I', int(ns))
+            write_buffer[write_offset:write_offset + 4] = ns_bytes
             write_offset += 4
 
             msg_bytes = message.encode('utf-8')

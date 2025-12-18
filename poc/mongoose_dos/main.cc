@@ -33,7 +33,8 @@ static void ev_handler(struct mg_connection *c, int ev, void *ev_data) {
 				// if (expand && io->len + 2 > io->size) mg_iobuf_resize(io, io->len + 2);
 
 				mg_rpc_process(&r);
-				if (io.buf) mg_http_reply(c, 200, "", "%s\r\n%d", (char*)io.buf, l);
+				if (io.buf) mg_http_reply(c, 200, "", "%s", (char*)io.buf);
+				// if (io.buf) mg_http_reply(c, 200, "", "%s\r\n%d", (char*)io.buf, l);
 				else mg_http_reply(c, 400, "", "%m\n", MG_ESC("Error: Invalid RPC call"));
 				mg_iobuf_free(&io);
 
@@ -52,6 +53,7 @@ static void ev_handler(struct mg_connection *c, int ev, void *ev_data) {
 
 int main() {
 	struct mg_mgr mgr;
+	mg_log_set(MG_LL_DEBUG);
 	mg_mgr_init(&mgr);
 	mg_http_listen(&mgr, "http://0.0.0.0:8000", ev_handler, NULL);
 	mg_rpc_add(&s_rpc_head, mg_str("sum"), rpc_sum, NULL);

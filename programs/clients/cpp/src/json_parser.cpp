@@ -47,13 +47,12 @@ char* parse_json_parser(char* data, int json_size, char* key, int key_size, char
                     break;
 
                 case json_double:
-                    snprintf((char*)buf, buf_size - 1, "%f", match->u.dbl);
+                    snprintf((char*)buf, buf_size - 1, "%g", match->u.dbl);
                     ret = (char*)buf;
                     break;
 
                 case json_string:
-                    // ret = strdup(match->u.string.ptr);
-					strncpy((char*)buf, match->u.string.ptr, buf_size - 1);
+                    snprintf((char*)buf, buf_size - 1, "\"%s\"", match->u.string.ptr);
                     ret = (char*)buf;
                     break;
 
