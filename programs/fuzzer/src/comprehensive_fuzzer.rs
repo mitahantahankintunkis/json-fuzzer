@@ -1,4 +1,6 @@
+#![allow(unused)]
 use serde::Deserialize;
+
 #[allow(unused)]
 use std::{
     cmp::{max, min, Ordering},
@@ -18,18 +20,18 @@ pub struct Config {
 }
 
 // Serde functions for defaults
-fn q() -> String {
-    "q".to_string()
-}
+// fn q() -> String {
+//     "q".to_string()
+// }
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct PayloadConfig {
     pub name: String,
     pub json: String,
-    #[serde(default)]
-    pub datatype: Datatype,
-    #[serde(default = "q")]
-    pub key: String,
+    // #[serde(default)]
+    // pub datatype: Datatype,
+    // #[serde(default = "q")]
+    // pub key: String,
     #[serde(default)]
     pub fuzz: Vec<FuzzConfig>,
 }
@@ -52,8 +54,8 @@ pub struct FuzzConfig {
     pub indices: Option<Range<usize>>,
     #[serde(default)]
     pub prefix: String,
-    #[serde(default)]
-    pub suffix: String,
+    // #[serde(default)]
+    // pub suffix: String,
     pub map: Option<FuzzMapConfig>,
     #[serde(default)]
     pub remove_after: usize,
@@ -70,7 +72,7 @@ pub struct Fuzz {
     pub range: Range<u32>,
     pub indices: Range<usize>,
     pub prefix: Vec<u8>,
-    pub suffix: Vec<u8>,
+    // pub suffix: Vec<u8>,
     pub remove_after: usize,
     pub inherit_value_from: Option<usize>,
     pub right_of: Option<usize>,
@@ -100,7 +102,7 @@ pub enum FuzzMap {
 }
 
 impl FuzzMap {
-    #[inline]
+    #[inline(always)]
     pub fn map(&self, i: u32, byte_offset: usize) -> u8 {
         match self {
             FuzzMap::Word { byte_count } => {
@@ -132,8 +134,8 @@ impl ComprehensiveFuzzer {
         PayloadConfig {
             name: "insert_single".to_string(),
             json: test_case.json.clone(),
-            datatype: Datatype::Int,
-            key: test_case.key.clone(),
+            // datatype: Datatype::Int,
+            // key: test_case.key.clone(),
             fuzz: vec![FuzzConfig::default()],
         }
         .into()
@@ -143,8 +145,8 @@ impl ComprehensiveFuzzer {
         let mut ret = PayloadConfig {
             name: "insert_two".to_string(),
             json: test_case.json.clone(),
-            datatype: Datatype::Int,
-            key: test_case.key.clone(),
+            // datatype: Datatype::Int,
+            // key: test_case.key.clone(),
             fuzz: vec![FuzzConfig::default(), FuzzConfig::default()],
         };
 
@@ -158,8 +160,8 @@ impl ComprehensiveFuzzer {
         let mut ret = PayloadConfig {
             name: "remove_single".to_string(),
             json: test_case.json.clone(),
-            datatype: Datatype::Int,
-            key: test_case.key.clone(),
+            // datatype: Datatype::Int,
+            // key: test_case.key.clone(),
             fuzz: vec![FuzzConfig::default()],
         };
 
@@ -172,8 +174,8 @@ impl ComprehensiveFuzzer {
         let mut ret = PayloadConfig {
             name: "remove_two".to_string(),
             json: test_case.json.clone(),
-            datatype: Datatype::Int,
-            key: test_case.key.clone(),
+            // datatype: Datatype::Int,
+            // key: test_case.key.clone(),
             fuzz: vec![FuzzConfig::default(), FuzzConfig::default()],
         };
 
@@ -189,8 +191,8 @@ impl ComprehensiveFuzzer {
         let mut ret = PayloadConfig {
             name: "insert_unicode".to_string(),
             json: test_case.json.clone(),
-            datatype: Datatype::Int,
-            key: test_case.key.clone(),
+            // datatype: Datatype::Int,
+            // key: test_case.key.clone(),
             fuzz: vec![FuzzConfig::default()],
         };
 
@@ -207,8 +209,8 @@ impl ComprehensiveFuzzer {
         let mut ret = PayloadConfig {
             name: "replace_unicode".to_string(),
             json: test_case.json.clone(),
-            datatype: Datatype::Int,
-            key: test_case.key.clone(),
+            // datatype: Datatype::Int,
+            // key: test_case.key.clone(),
             fuzz: vec![FuzzConfig::default()],
         };
 
@@ -226,8 +228,8 @@ impl ComprehensiveFuzzer {
         let mut ret = PayloadConfig {
             name: "insert_single_word".to_string(),
             json: test_case.json.clone(),
-            datatype: Datatype::Int,
-            key: test_case.key.clone(),
+            // datatype: Datatype::Int,
+            // key: test_case.key.clone(),
             fuzz: vec![FuzzConfig::default()],
         };
 
@@ -240,8 +242,8 @@ impl ComprehensiveFuzzer {
         let mut ret = PayloadConfig {
             name: "replace_single_word".to_string(),
             json: test_case.json.clone(),
-            datatype: Datatype::Int,
-            key: test_case.key.clone(),
+            // datatype: Datatype::Int,
+            // key: test_case.key.clone(),
             fuzz: vec![FuzzConfig::default()],
         };
 
@@ -255,8 +257,8 @@ impl ComprehensiveFuzzer {
         let mut ret = PayloadConfig {
             name: "insert_grammar".to_string(),
             json: test_case.json.clone(),
-            datatype: Datatype::Int,
-            key: test_case.key.clone(),
+            // datatype: Datatype::Int,
+            // key: test_case.key.clone(),
             fuzz: vec![FuzzConfig::default(), FuzzConfig::default()],
         };
 
@@ -268,6 +270,9 @@ impl ComprehensiveFuzzer {
             chars: "09e.-[]{}\",".to_string(),
             byte_count: 1,
         });
+        ret.fuzz[0].id = Some("0".into());
+        ret.fuzz[1].right_of = Some("0".into());
+
         // ret.fuzz[0].remove_after = 1;
 
         ret.into()
@@ -436,6 +441,18 @@ impl ComprehensiveFuzzer {
 
         Err(())
     }
+
+    pub fn as_bytes(&self) -> Vec<u8> {
+        let mut buf = vec![0u8; self.byte_count];
+
+        match self.copy_to_slice(&mut buf) {
+            Ok(n) => {
+                buf.truncate(n);
+                buf
+            }
+            Err(_) => Vec::new(),
+        }
+    }
 }
 
 impl Fuzzer for ComprehensiveFuzzer {
@@ -503,14 +520,70 @@ impl Fuzzer for ComprehensiveFuzzer {
         Err(())
     }
 
-    fn copy_to_slice(&mut self, buf: &mut [u8]) -> Result<usize, ()> {
+    #[inline(always)]
+    fn copy_to_slice(&self, buf: &mut [u8]) -> Result<usize, ()> {
         if self.byte_count > buf.len() {
             return Err(());
         }
 
-        for (i, b) in self.into_iter().enumerate() {
-            buf[i] = b;
+        // unsafe {
+        // let mut buf_ptr = buf.as_mut_ptr();
+        // let mut src_ptr = self.bytes.as_ptr();
+        let mut byte_i = 0;
+        let mut i = 0;
+
+        // for fuzz in self.fuzz.iter().rev() {
+        for fuzz_i in (0..self.fuzz.len()).rev() {
+            let fuzz_i = self.sorted_fuzz_lookup[fuzz_i];
+            let fuzz = &self.fuzz[fuzz_i];
+
+            if fuzz.index > byte_i {
+                let n = fuzz.index - byte_i;
+                buf[i..i + n].copy_from_slice(&self.bytes[byte_i..byte_i + n]);
+                // std::ptr::copy_nonoverlapping(src_ptr, buf_ptr, n);
+                // buf_ptr = buf_ptr.add(n);
+                // src_ptr = src_ptr.add(n);
+                i += n;
+                byte_i += n;
+            }
+
+            let fuzz = if let Some(i) = fuzz.inherit_value_from {
+                &self.fuzz[i]
+            } else {
+                fuzz
+            };
+
+            let fuzz_prefix_len = fuzz.prefix.len();
+            // let fuzz_suffix_len = fuzz.suffix.len();
+
+            if fuzz_prefix_len > 0 {
+                buf[i..i + fuzz_prefix_len].copy_from_slice(&fuzz.prefix);
+                i += fuzz_prefix_len;
+                // std::ptr::copy_nonoverlapping(fuzz.prefix.as_ptr(), buf_ptr, fuzz_prefix_len);
+                // buf_ptr = buf_ptr.add(fuzz_prefix_len);
+            }
+
+            for j in 0..fuzz.mapped_length {
+                buf[i] = fuzz.map.map(fuzz.value, j);
+                i += 1;
+                // *buf_ptr = fuzz.map.map(fuzz.value, j);
+                // buf_ptr = buf_ptr.add(1);
+            }
+
+            // if fuzz_suffix_len > 0 {
+            //     std::ptr::copy_nonoverlapping(fuzz.suffix.as_ptr(), buf_ptr, fuzz_suffix_len);
+            //     buf_ptr = buf_ptr.add(fuzz_suffix_len);
+            // }
+
+            byte_i += fuzz.remove_after;
         }
+
+        if self.bytes.len() > byte_i {
+            let n = self.bytes.len() - byte_i;
+            buf[i..i + n].copy_from_slice(&self.bytes[byte_i..byte_i + n]);
+            // std::ptr::copy_nonoverlapping(src_ptr, buf_ptr, n);
+        }
+        // }
 
         Ok(self.byte_count)
     }
@@ -519,10 +592,6 @@ impl Fuzzer for ComprehensiveFuzzer {
         self.id.clone()
     }
 }
-
-// impl From<TestCase> for ComprehensiveFuzzer {
-//     fn from(value: TestCase) -> Self {}
-// }
 
 impl From<PayloadConfig> for ComprehensiveFuzzer {
     fn from(config: PayloadConfig) -> Self {
@@ -658,7 +727,7 @@ impl From<PayloadConfig> for ComprehensiveFuzzer {
                 value: range.start,
                 index: usize::MAX,
                 prefix: decode_str(&c.prefix),
-                suffix: decode_str(&c.suffix),
+                // suffix: decode_str(&c.suffix),
                 range: range,
                 indices: indices,
                 remove_after: c.remove_after,
@@ -698,7 +767,7 @@ impl From<PayloadConfig> for ComprehensiveFuzzer {
             + fuzzes
                 .iter()
                 .map(|f| {
-                    (f.prefix.len() as isize) + (f.suffix.len() as isize)
+                    (f.prefix.len() as isize)/* + (f.suffix.len() as isize) */
                         - (f.remove_after as isize)
                         + (f.mapped_length as isize)
                 })
@@ -727,83 +796,84 @@ impl From<PayloadConfig> for ComprehensiveFuzzer {
     }
 }
 
-pub struct PayloadIter<'a> {
-    pub payload: &'a ComprehensiveFuzzer,
-    pub byte_i: usize,
-    pub fuzz_i: usize,
-    pub fuzz_byte_offset: usize,
-    pub skip: usize,
-    pub truncated: usize,
-}
-
-// Iterates payload bytes.
-// Inserts fuzzed values into the payload
-impl<'a> Iterator for PayloadIter<'a> {
-    type Item = u8;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.fuzz_i > 0 {
-            let fuzz_i = self.payload.sorted_fuzz_lookup[self.fuzz_i - 1];
-            let fuzz = &self.payload.fuzz[fuzz_i];
-
-            if fuzz.index <= self.byte_i {
-                let fuzz = if let Some(i) = fuzz.inherit_value_from {
-                    &self.payload.fuzz[i]
-                } else {
-                    fuzz
-                };
-
-                let o0 = self.fuzz_byte_offset as i32;
-                let o1 = o0 - fuzz.prefix.len() as i32;
-                let o2 = o1 - fuzz.mapped_length as i32;
-
-                let byte = if o0 < fuzz.prefix.len() as i32 {
-                    fuzz.prefix[self.fuzz_byte_offset]
-                } else if o1 < fuzz.mapped_length as i32 {
-                    fuzz.map.map(fuzz.value, o1 as usize)
-                } else if o2 < fuzz.suffix.len() as i32 {
-                    fuzz.suffix[o2 as usize]
-                } else {
-                    0
-                };
-
-                self.fuzz_byte_offset += 1;
-
-                if o2 + 1 >= fuzz.suffix.len() as i32 {
-                    self.fuzz_i -= 1;
-                    self.fuzz_byte_offset = 0;
-                    self.byte_i += fuzz.remove_after;
-                    self.truncated += fuzz.remove_after;
-                }
-
-                return Some(byte);
-            }
-        }
-
-        if self.byte_i >= self.payload.bytes.len() {
-            return None;
-        }
-
-        self.byte_i += 1;
-        Some(self.payload.bytes[self.byte_i - 1])
-    }
-}
-
-impl<'a> IntoIterator for &'a ComprehensiveFuzzer {
-    type Item = u8;
-    type IntoIter = PayloadIter<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        PayloadIter {
-            payload: self,
-            byte_i: 0,
-            fuzz_i: self.fuzz.len(),
-            fuzz_byte_offset: 0,
-            skip: 0,
-            truncated: 0,
-        }
-    }
-}
+// pub struct PayloadIter<'a> {
+//     pub payload: &'a ComprehensiveFuzzer,
+//     pub byte_i: usize,
+//     pub fuzz_i: usize,
+//     pub fuzz_byte_offset: usize,
+//     // pub skip: usize,
+//     pub truncated: usize,
+// }
+//
+// // Iterates payload bytes.
+// // Inserts fuzzed values into the payload
+// impl<'a> Iterator for PayloadIter<'a> {
+//     type Item = u8;
+//
+//     fn next(&mut self) -> Option<Self::Item> {
+//         if self.fuzz_i > 0 {
+//             let fuzz_i = self.payload.sorted_fuzz_lookup[self.fuzz_i - 1];
+//             let fuzz = &self.payload.fuzz[fuzz_i];
+//
+//             if fuzz.index <= self.byte_i {
+//                 let fuzz = if let Some(i) = fuzz.inherit_value_from {
+//                     &self.payload.fuzz[i]
+//                 } else {
+//                     fuzz
+//                 };
+//
+//                 let o0 = self.fuzz_byte_offset as i32;
+//                 let o1 = o0 - fuzz.prefix.len() as i32;
+//                 let o2 = o1 - fuzz.mapped_length as i32;
+//
+//                 let byte = if o0 < fuzz.prefix.len() as i32 {
+//                     fuzz.prefix[self.fuzz_byte_offset]
+//                 } else if o1 < fuzz.mapped_length as i32 {
+//                     fuzz.map.map(fuzz.value, o1 as usize)
+//                 // } else if o2 < fuzz.suffix.len() as i32 {
+//                 //     fuzz.suffix[o2 as usize]
+//                 } else {
+//                     0
+//                 };
+//
+//                 self.fuzz_byte_offset += 1;
+//
+//                 // if o2 + 1 >= fuzz.suffix.len() as i32 {
+//                 if o2 + 1 >= 0 {
+//                     self.fuzz_i -= 1;
+//                     self.fuzz_byte_offset = 0;
+//                     self.byte_i += fuzz.remove_after;
+//                     self.truncated += fuzz.remove_after;
+//                 }
+//
+//                 return Some(byte);
+//             }
+//         }
+//
+//         if self.byte_i >= self.payload.bytes.len() {
+//             return None;
+//         }
+//
+//         self.byte_i += 1;
+//         Some(self.payload.bytes[self.byte_i - 1])
+//     }
+// }
+//
+// impl<'a> IntoIterator for &'a ComprehensiveFuzzer {
+//     type Item = u8;
+//     type IntoIter = PayloadIter<'a>;
+//
+//     fn into_iter(self) -> Self::IntoIter {
+//         PayloadIter {
+//             payload: self,
+//             byte_i: 0,
+//             fuzz_i: self.fuzz.len(),
+//             fuzz_byte_offset: 0,
+//             // skip: 0,
+//             truncated: 0,
+//         }
+//     }
+// }
 
 // 3.3s in total
 #[cfg(test)]
@@ -835,20 +905,20 @@ mod tests {
             r#"
                 [[payloads]]
                 name = "empty"
-                payload = 'null'
+                json = 'null'
                 datatype = "Null"
                 key = "q"
 
                 [[payloads]]
                 name = "duplicate_keys_single_byte"
-                payload = '{"q":2,"q":3}'
+                json = '{"q":2,"q":3}'
                 datatype = "Int"
                 key = "q"
                 [[payloads.fuzz]]
 
                 [[payloads]]
                 name = "duplicate_keys_two_bytes"
-                payload = '{"q":2,"q":3}'
+                json = '{"q":2,"q":3}'
                 datatype = "Int"
                 key = "q"
                 [[payloads.fuzz]]
@@ -856,7 +926,7 @@ mod tests {
 
                 [[payloads]]
                 name = "all_fuzz_modes_single_byte"
-                payload = '{"q":"a"}'
+                json = '{"q":"a"}'
                 datatype = "String"
                 key = "q"
                 [[payloads.fuzz]]
@@ -864,9 +934,9 @@ mod tests {
                 [[payloads.fuzz]]
                 map = { Characters = { chars = '\x00\x01A', byte_count = 1 }}
                 prefix = 'asdf'
-                suffix = 'qwer'
                 remove_after = 2
         "#,
+            // suffix = 'qwer'
         )
         .unwrap();
 
@@ -887,53 +957,156 @@ mod tests {
             _ => panic!(),
         }
         assert_eq!(p.fuzz[1].prefix, "asdf".to_string());
-        assert_eq!(p.fuzz[1].suffix, "qwer".to_string());
+        // assert_eq!(p.fuzz[1].suffix, "qwer".to_string());
         assert_eq!(p.fuzz[1].remove_after, 2);
     }
 
     // 0.29s
     #[test]
-    fn performance() {
+    fn performance1() {
         // Chained right_of don't work properly
         let config: Config = toml::from_str(
             r#"
                 [[payloads]]
                 name = "duplicate_keys_single_byte"
-                payload = ''
+                json = ''
                 [[payloads.fuzz]]
                 id = '0'
                 map = { Word = { byte_count = 2 }}
                 [[payloads.fuzz]]
                 right_of = '0'
-                map = { Word = { byte_count = 1 }}
+                map = { Word = { byte_count = 2 }}
         "#,
         )
         .unwrap();
 
         let mut payload: ComprehensiveFuzzer = config.payloads[0].clone().into();
         println!("{:?}", payload.config);
+        let mut result = [0u8; 4];
 
-        for i in 0..(u32::MAX & 0xffffff) {
-            let mut it = payload.into_iter();
+        for i in 0..(u32::MAX & 0xffffffff) {
+            // let mut it = payload.into_iter();
+            assert_eq!(payload.copy_to_slice(&mut result), Ok(4));
             // let d = it.next().unwrap();
-            let c = it.next().unwrap();
-            let b = it.next().unwrap();
-            let a = it.next().unwrap();
+            // let c = it.next().unwrap();
+            // let b = it.next().unwrap();
+            // let a = it.next().unwrap();
             // println!("{} {} {} {}", a, b, c, d);
             // println!("{} {} {}", a, b, c);
 
             // assert_eq!(((i >> 24) & 0xff) as u8, d);
-            assert_eq!(((i >> 16) & 0xff) as u8, c);
-            assert_eq!(((i >> 8) & 0xff) as u8, b);
-            assert_eq!(((i >> 0) & 0xff) as u8, a);
-            assert!(it.next().is_none());
+            // assert_eq!(((i >> 16) & 0xff) as u8, c);
+            // assert_eq!(((i >> 8) & 0xff) as u8, b);
+            // assert_eq!(((i >> 0) & 0xff) as u8, a);
+            assert_eq!(((i >> 24) & 0xff) as u8, result[0]);
+            assert_eq!(((i >> 16) & 0xff) as u8, result[1]);
+            assert_eq!(((i >> 8) & 0xff) as u8, result[2]);
+            assert_eq!(((i >> 0) & 0xff) as u8, result[3]);
+            // assert!(it.next().is_none());
             let _ = payload.advance();
         }
 
         assert!(
             payload.advance().is_err(),
             "Should not have next\n{}\n{:#?}",
-            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+            // buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+            buffer_as_string("Payload", &payload.as_bytes()),
+            payload.fuzz
+        );
+    }
+
+    #[test]
+    fn performance2() {
+        let config: Config = toml::from_str(
+            r#"
+                [[payloads]]
+                name = "duplicate_keys_single_byte"
+                json = '{"":2,"q":3}'
+                [[payloads.fuzz]]
+                map = { Word = { byte_count = 2 }}
+                indices = { start = 2, end = 2 }
+                id = '0'
+                [[payloads.fuzz]]
+                right_of = '0'
+                map = { Word = { byte_count = 2 }}
+                indices = { start = 2, end = 2 }
+        "#,
+        )
+        .unwrap();
+
+        let mut payload: ComprehensiveFuzzer = config.payloads[0].clone().into();
+        println!("{:?}", payload.config);
+        let mut result = [0u8; 16];
+
+        for i in 0..(u32::MAX & 0xffffffff) {
+            // let mut it = payload.into_iter();
+            assert_eq!(payload.copy_to_slice(&mut result), Ok(16));
+            // println!("{:02x?}", result);
+
+            // let d = it.next().unwrap();
+            // let c = it.next().unwrap();
+            // let b = it.next().unwrap();
+            // let a = it.next().unwrap();
+            // println!("{} {} {} {}", a, b, c, d);
+            // println!("{} {} {}", a, b, c);
+
+            // assert_eq!(((i >> 24) & 0xff) as u8, d);
+            // assert_eq!(((i >> 16) & 0xff) as u8, c);
+            // assert_eq!(((i >> 8) & 0xff) as u8, b);
+            // assert_eq!(((i >> 0) & 0xff) as u8, a);
+            assert_eq!(((i >> 24) & 0xff) as u8, result[2]);
+            assert_eq!(((i >> 16) & 0xff) as u8, result[3]);
+            assert_eq!(((i >> 8) & 0xff) as u8, result[4]);
+            assert_eq!(((i >> 0) & 0xff) as u8, result[5]);
+            // assert!(it.next().is_none());
+            let _ = payload.advance();
+        }
+
+        assert!(
+            payload.advance().is_err(),
+            "Should not have next\n{}\n{:#?}",
+            buffer_as_string("Payload", &payload.as_bytes()),
+            payload.fuzz
+        );
+    }
+
+    #[test]
+    fn performance3() {
+        let config: Config = toml::from_str(
+            r#"
+                [[payloads]]
+                name = "duplicate_keys_single_byte"
+                json = '{"":2,"q":3}'
+                [[payloads.fuzz]]
+                map = { Word = { byte_count = 1 }}
+                indices = { start = 2, end = 2 }
+                id = '0'
+                [[payloads.fuzz]]
+                right_of = '0'
+                map = { Word = { byte_count = 2 }}
+                indices = { start = 2, end = 2 }
+        "#,
+        )
+        .unwrap();
+
+        let mut payload: ComprehensiveFuzzer = config.payloads[0].clone().into();
+        println!("{:?}", payload.config);
+        let mut result = [0u8; 15];
+
+        for i in 0..(u32::MAX & 0x00ffffff) {
+            assert_eq!(payload.copy_to_slice(&mut result), Ok(15));
+            // println!("{:02x?}", result);
+
+            assert_eq!(((i >> 16) & 0xff) as u8, result[2]);
+            assert_eq!(((i >> 8) & 0xff) as u8, result[3]);
+            assert_eq!(((i >> 0) & 0xff) as u8, result[4]);
+            let _ = payload.advance();
+        }
+
+        assert!(
+            payload.advance().is_err(),
+            "Should not have next\n{}\n{:#?}",
+            buffer_as_string("Payload", &payload.as_bytes()),
             payload.fuzz
         );
     }
@@ -944,7 +1117,7 @@ mod tests {
             r#"
                 [[payloads]]
                 name = "duplicate_keys_single_byte"
-                payload = '{"@":2,"q":3}'
+                json = '{"@":2,"q":3}'
                 [[payloads.fuzz]]
                 indices = { start = 2, end = 2 }
                 remove_after = 1
@@ -962,8 +1135,8 @@ mod tests {
             // print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
             // print_buffer("Expected", &bytes);
 
-            for (i, byte) in payload.into_iter().enumerate() {
-                assert_eq!(byte, bytes[i]);
+            for (i, byte) in payload.as_bytes().iter().enumerate() {
+                assert_eq!(*byte, bytes[i]);
             }
 
             if let Err(_) = payload.advance() {
@@ -980,7 +1153,7 @@ mod tests {
             r#"
                 [[payloads]]
                 name = "duplicate_keys_single_byte"
-                payload = '{"q":2,"q":3}'
+                json = '{"q":2,"q":3}'
                 [[payloads.fuzz]]
         "#,
         )
@@ -998,7 +1171,7 @@ mod tests {
                 // print_buffer("Payload", &payload.into_iter().collect::<Vec<u8>>());
                 // print_buffer("Expected", &buffer);
 
-                assert_eq!(buffer, payload.into_iter().collect::<Vec<u8>>());
+                assert_eq!(buffer, payload.as_bytes());
 
                 buffer[i] = buffer[i].wrapping_add(1);
                 let _ = payload.advance();
@@ -1012,7 +1185,7 @@ mod tests {
         assert!(
             payload.advance().is_err(),
             "Should not have next\n{}",
-            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+            buffer_as_string("Payload", &payload.as_bytes()),
         );
     }
 
@@ -1022,7 +1195,7 @@ mod tests {
             r#"
                 [[payloads]]
                 name = "duplicate_keys_single_byte"
-                payload = '{"q":"a"}'
+                json = '{"q":"a"}'
                 datatype = "String"
                 key = "q"
                 [[payloads.fuzz]]
@@ -1058,9 +1231,9 @@ mod tests {
 
                     assert_eq!(
                         expected,
-                        payload.into_iter().collect::<Vec<u8>>(),
+                        payload.as_bytes(),
                         "{}\n{}\n{:#?}",
-                        buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+                        buffer_as_string("Payload", &payload.as_bytes()),
                         buffer_as_string("Expected", &expected),
                         payload.fuzz,
                     );
@@ -1083,7 +1256,7 @@ mod tests {
         assert!(
             payload.advance().is_err(),
             "Should not have next\n{}",
-            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+            buffer_as_string("Payload", &payload.as_bytes()),
         );
     }
 
@@ -1093,7 +1266,7 @@ mod tests {
             r#"
                 [[payloads]]
                 name = "duplicate_keys_insert_two_bytes"
-                payload = '{"q":2,"q":3}'
+                json = '{"q":2,"q":3}'
                 datatype = "Int"
                 key = "q"
                 [[payloads.fuzz]]
@@ -1138,9 +1311,9 @@ mod tests {
 
                     assert_eq!(
                         expected,
-                        payload.into_iter().collect::<Vec<u8>>(),
+                        payload.as_bytes(),
                         "\n{}\n{}\n{:#?}",
-                        buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+                        buffer_as_string("Payload", &payload.as_bytes()),
                         buffer_as_string("Expected", &expected),
                         payload.fuzz,
                     );
@@ -1172,7 +1345,7 @@ mod tests {
         assert!(
             payload.advance().is_err(),
             "Should not have next\n{}",
-            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+            buffer_as_string("Payload", &payload.as_bytes()),
         );
     }
 
@@ -1182,7 +1355,7 @@ mod tests {
             r#"
                 [[payloads]]
                 name = "duplicate_keys_single_byte"
-                payload = '{"q":"a"}'
+                json = '{"q":"a"}'
                 datatype = "String"
                 key = "q"
                 [[payloads.fuzz]]
@@ -1220,9 +1393,9 @@ mod tests {
 
                     assert_eq!(
                         expected,
-                        payload.into_iter().collect::<Vec<u8>>(),
+                        payload.as_bytes(),
                         "\n{}\n{}\n{:#?}",
-                        buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+                        buffer_as_string("Payload", &payload.as_bytes()),
                         buffer_as_string("Expected", &expected),
                         payload.fuzz
                     );
@@ -1246,7 +1419,7 @@ mod tests {
         assert!(
             payload.advance().is_err(),
             "Should not have next\n{}",
-            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+            buffer_as_string("Payload", &payload.as_bytes()),
         );
     }
 
@@ -1256,7 +1429,7 @@ mod tests {
             r#"
                 [[payloads]]
                 name = "duplicate_keys_insert_two_bytes"
-                payload = '{"q":2,"q":3}'
+                json = '{"q":2,"q":3}'
                 [[payloads.fuzz]]
                 remove_after = 1
                 [[payloads.fuzz]]
@@ -1300,9 +1473,9 @@ mod tests {
 
                     assert_eq!(
                         expected,
-                        payload.into_iter().collect::<Vec<u8>>(),
+                        payload.as_bytes(),
                         "\n{}\n{}\n{:#?}",
-                        buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+                        buffer_as_string("Payload", &payload.as_bytes()),
                         buffer_as_string("Expected", &expected),
                         payload.fuzz,
                     );
@@ -1329,7 +1502,7 @@ mod tests {
         assert!(
             payload.advance().is_err(),
             "Should not have next\n{}",
-            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+            buffer_as_string("Payload", &payload.as_bytes()),
         );
     }
 
@@ -1339,7 +1512,7 @@ mod tests {
             r#"
                 [[payloads]]
                 name = "duplicate_keys_replace_unicode"
-                payload = '{"q":2,"q":3}'
+                json = '{"q":2,"q":3}'
                 [[payloads.fuzz]]
                 map = { Characters = { chars = '0123456789abcdef', byte_count = 4 }}
                 prefix = '\u'
@@ -1374,12 +1547,9 @@ mod tests {
 
                             assert_eq!(
                                 expected,
-                                payload.into_iter().collect::<Vec<u8>>(),
+                                payload.as_bytes(),
                                 "\n{}\n{}\n{:#?}",
-                                buffer_as_string(
-                                    "Payload",
-                                    &payload.into_iter().collect::<Vec<u8>>()
-                                ),
+                                buffer_as_string("Payload", &payload.as_bytes()),
                                 buffer_as_string("Expected", &expected),
                                 payload.fuzz,
                             );
@@ -1400,7 +1570,7 @@ mod tests {
         assert!(
             payload.advance().is_err(),
             "Should not have next\n{}",
-            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+            buffer_as_string("Payload", &payload.as_bytes()),
         );
     }
     #[test]
@@ -1409,7 +1579,7 @@ mod tests {
             r#"
                 [[payloads]]
                 name = "duplicate_keys_single_byte"
-                payload = '{"q":2@"q":3}'
+                json = '{"q":2@"q":3}'
                 datatype = "Int"
                 key = "q"
                 [[payloads.fuzz]]
@@ -1438,9 +1608,9 @@ mod tests {
 
             assert_eq!(
                 expected,
-                payload.into_iter().collect::<Vec<u8>>(),
+                payload.as_bytes(),
                 "\n{}\n{}",
-                buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+                buffer_as_string("Payload", &payload.as_bytes()),
                 buffer_as_string("Expected", &expected),
             );
 
@@ -1450,7 +1620,7 @@ mod tests {
         assert!(
             payload.advance().is_err(),
             "Should not have next\n{}",
-            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+            buffer_as_string("Payload", &payload.as_bytes()),
         );
     }
 
@@ -1460,7 +1630,7 @@ mod tests {
             r#"
                 [[payloads]]
                 name = "duplicate_keys_single_byte"
-                payload = '{"q":2,"q":3}'
+                json = '{"q":2,"q":3}'
                 datatype = "Int"
                 key = "q"
                 [[payloads.fuzz]]
@@ -1485,9 +1655,9 @@ mod tests {
 
                 assert_eq!(
                     expected,
-                    payload.into_iter().collect::<Vec<u8>>(),
+                    payload.as_bytes(),
                     "{}\n{}",
-                    buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+                    buffer_as_string("Payload", &payload.as_bytes()),
                     buffer_as_string("Expected", &expected),
                 );
 
@@ -1498,7 +1668,7 @@ mod tests {
         assert!(
             payload.advance().is_err(),
             "Should not have next\n{}",
-            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+            buffer_as_string("Payload", &payload.as_bytes()),
         );
     }
 
@@ -1508,7 +1678,7 @@ mod tests {
             r#"
                 [[payloads]]
                 name = "duplicate_keys_single_byte"
-                payload = '{"q":"a"}'
+                json = '{"q":"a"}'
                 datatype = "String"
                 key = "q"
                 [[payloads.fuzz]]
@@ -1544,9 +1714,9 @@ mod tests {
 
                     assert_eq!(
                         expected,
-                        payload.into_iter().collect::<Vec<u8>>(),
+                        payload.as_bytes(),
                         "{}\n{}\n{:#?}\n{:#?}",
-                        buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+                        buffer_as_string("Payload", &payload.as_bytes()),
                         buffer_as_string("Expected", &expected),
                         payload.fuzz,
                         payload.sorted_fuzz_lookup,
@@ -1564,7 +1734,7 @@ mod tests {
         assert!(
             payload.advance().is_err(),
             "Should not have next\n{}",
-            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+            buffer_as_string("Payload", &payload.as_bytes()),
         );
     }
 
@@ -1574,7 +1744,7 @@ mod tests {
             r#"
                 [[payloads]]
                 name = "duplicate_keys_single_byte"
-                payload = '42'
+                json = '42'
                 datatype = "String"
                 key = "q"
                 [[payloads.fuzz]]
@@ -1612,9 +1782,9 @@ mod tests {
 
                     assert_eq!(
                         expected,
-                        payload.into_iter().collect::<Vec<u8>>(),
+                        payload.as_bytes(),
                         "\n{}\n{}\n{:#?}\n{:?}",
-                        buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+                        buffer_as_string("Payload", &payload.as_bytes()),
                         buffer_as_string("Expected", &expected),
                         payload.fuzz,
                         payload.sorted_fuzz_lookup
@@ -1633,7 +1803,7 @@ mod tests {
         assert!(
             payload.advance().is_err(),
             "Should not have next\n{}",
-            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+            buffer_as_string("Payload", &payload.as_bytes()),
         );
     }
 
@@ -1643,7 +1813,7 @@ mod tests {
             r#"
                 [[payloads]]
                 name = "duplicate_keys_single_byte"
-                payload = '[2]'
+                json = '[2]'
                 datatype = "String"
                 key = "q"
                 [[payloads.fuzz]]
@@ -1687,12 +1857,9 @@ mod tests {
 
                             assert_eq!(
                                 expected,
-                                payload.into_iter().collect::<Vec<u8>>(),
+                                payload.as_bytes(),
                                 "\n{}\n{}\n{:#?}\n{:?}",
-                                buffer_as_string(
-                                    "Payload",
-                                    &payload.into_iter().collect::<Vec<u8>>(),
-                                ),
+                                buffer_as_string("Payload", &payload.as_bytes(),),
                                 buffer_as_string("Expected", &expected),
                                 payload.fuzz,
                                 payload.sorted_fuzz_lookup,
@@ -1714,7 +1881,7 @@ mod tests {
         assert!(
             payload.advance().is_err(),
             "Should not have next\n{}",
-            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+            buffer_as_string("Payload", &payload.as_bytes()),
         );
     }
 
@@ -1724,7 +1891,7 @@ mod tests {
             r#"
                 [[payloads]]
                 name = "duplicate_keys_single_byte"
-                payload = '[0]'
+                json = '[0]'
                 datatype = "String"
                 key = "q"
                 [[payloads.fuzz]]
@@ -1765,11 +1932,11 @@ mod tests {
 
                     assert_eq!(
                         expected,
-                        payload.into_iter().collect::<Vec<u8>>(),
+                        payload.as_bytes(),
                         "{} {}\n{}\n{}\n{:#?}\n{:?}",
                         replace_i,
                         insert_i,
-                        buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+                        buffer_as_string("Payload", &payload.as_bytes()),
                         buffer_as_string("Expected", &expected),
                         payload.fuzz,
                         payload.sorted_fuzz_lookup
@@ -1796,7 +1963,7 @@ mod tests {
         assert!(
             payload.advance().is_err(),
             "Should not have next\n{}",
-            buffer_as_string("Payload", &payload.into_iter().collect::<Vec<u8>>()),
+            buffer_as_string("Payload", &payload.as_bytes()),
         );
     }
 }

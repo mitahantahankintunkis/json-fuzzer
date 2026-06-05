@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	std_json "encoding/json"
 	"fmt"
+	goccy "github.com/goccy/go-json"
 	"io"
 	"net"
 	"os"
@@ -83,8 +84,47 @@ func std_parser(encoded []byte, key string) []byte {
 	return val
 }
 
+func goccy_parser(encoded []byte, key string) []byte {
+	if key == "q" {
+		std_decoded.Q = nil
+		err := goccy.Unmarshal(encoded, &std_decoded)
+
+		if err == nil {
+			if std_decoded.Q != nil {
+				val, err := goccy.Marshal(std_decoded.Q)
+
+				if err == nil {
+					return val
+				}
+			}
+		}
+	}
+
+	var decoded map[string]any
+	err := goccy.Unmarshal(encoded, &decoded)
+
+	if err != nil {
+		return PARSE_ERROR
+	}
+	parsed, ok := decoded[key]
+
+	if !ok {
+		return KEY_NOT_FOUND
+	}
+
+	val, err := goccy.Marshal(parsed)
+	if err != nil {
+		return PARSE_ERROR
+	}
+
+	return val
+}
+
 func francoispqt_gojay_parser(encoded []byte, key string) []byte {
-	// if key == "q" {
+	if key != "q" {
+		return KEY_NOT_FOUND
+	}
+
 	decoded := &query{}
 	err := gojay.UnmarshalJSONObject(encoded, decoded)
 
@@ -103,29 +143,6 @@ func francoispqt_gojay_parser(encoded []byte, key string) []byte {
 		return PARSE_ERROR
 	}
 	return val
-
-	// }
-
-	// var decoded map[string]any
-	// err := gojay.Unmarshal(encoded, &decoded)
-	//
-	// if err != nil {
-	// 	return PARSE_ERROR
-	// }
-	//
-	// parsed, ok := decoded[key]
-	//
-	// if !ok {
-	// 	return KEY_NOT_FOUND
-	// }
-	//
-	// val, err := gojay.Marshal(parsed)
-	//
-	// if err != nil {
-	// 	return PARSE_ERROR
-	// }
-	//
-	// return val
 }
 
 var json_iterator_decoded std_query
@@ -148,7 +165,6 @@ func json_iterator_parser(encoded []byte, key string) []byte {
 	var decoded map[string]any
 	var json = jsoniter.ConfigCompatibleWithStandardLibrary
 	err := json.Unmarshal(encoded, &decoded)
-	// err := std_json.Unmarshal(encoded, &decoded)
 
 	if err != nil {
 		return PARSE_ERROR
@@ -216,68 +232,6 @@ func buger_jsonparser_parser(encoded []byte, key string) []byte {
 	return PARSE_ERROR
 }
 
-// var simdjson_iter *simdjson.Iter
-// var simdjson_obj *simdjson.Object
-// var simdjson_parsed simdjson.ParsedJson
-// var simdjson_element simdjson.Element
-
-// func minio_simdjson_parser(encoded []byte, key string) []byte {
-// 	parsed, err := simdjson.Parse(encoded, &simdjson_parsed)
-//
-// 	if err != nil {
-// 		return PARSE_ERROR
-// 	}
-//
-// 	iter := parsed.Iter()
-//
-// 	typ := iter.Advance()
-//
-// 	switch typ {
-// 	case simdjson.TypeRoot:
-// 		if typ, simdjson_iter, err = iter.Root(simdjson_iter); err != nil {
-// 			return PARSE_ERROR
-// 		}
-//
-// 		if typ == simdjson.TypeObject {
-// 			if simdjson_obj, err = simdjson_iter.Object(simdjson_obj); err != nil {
-// 				return PARSE_ERROR
-// 			}
-//
-// 			e := simdjson_obj.FindKey("q", &simdjson_element)
-// 			if e != nil && simdjson_element.Type == simdjson.TypeInt {
-// 				v, _ := simdjson_element.Iter.Int()
-// 				return []byte(fmt.Sprint(v))
-// 			}
-// 		}
-//
-// 	default:
-// 		return PARSE_ERROR
-// 	}
-//
-// 	return PARSE_ERROR
-// 	// fmt.Println(ret)
-// 	//
-// 	// return ret
-// }
-
-// func ohohler55_ojg_parser(encoded []byte, key string) string {
-// 	var decoded map[string]interface{}
-//
-// 	err := oj.Unmarshal(encoded, &decoded)
-//
-// 	if err != nil {
-// 		return "PARSE_ERROR"
-// 	}
-//
-// 	val, ok := decoded["q"]
-//
-// 	if !ok {
-// 		return "KEY_NOT_FOUND"
-// 	}
-//
-// 	return fmt.Sprint(val)
-// }
-
 var fastjson_parser fastjson.Parser
 
 func valyala_fastjson_parser(encoded []byte, key string) []byte {
@@ -327,7 +281,6 @@ func sugawarayuuta_sonnet_parser(encoded []byte, key string) []byte {
 		return PARSE_ERROR
 	}
 	return ret
-	// return []byte(fmt.Sprint(val))
 }
 
 func recv_all(conn net.Conn, buf []byte, n int) error {
@@ -395,22 +348,21 @@ func main() {
 	case 3:
 		parser_name = "go_gjson"
 		parser_fn = tidwall_gjson_parser
-	case 4:
-		parser_name = "go_gjson_safe"
-		parser_fn = tidwall_gjson_safe_parser
+	// case 4:
+	// 	parser_name = "go_gjson_safe"
+	// 	parser_fn = tidwall_gjson_safe_parser
 	case 5:
 		parser_name = "go_jsonparser"
 		parser_fn = buger_jsonparser_parser
-	// case 6:
-	// 	parser_name = "go_minio_simdjson"
-	// case 7:
-	// 	parser_name = "go-ohler55-ojg"
 	case 6:
 		parser_name = "go_fastjson"
 		parser_fn = valyala_fastjson_parser
 	case 7:
 		parser_name = "go_sonnet"
 		parser_fn = sugawarayuuta_sonnet_parser
+	case 8:
+		parser_name = "go_goccy"
+		parser_fn = goccy_parser
 
 	default:
 		os.Exit(1)
@@ -498,6 +450,12 @@ func main() {
 			read_offset += json_size
 
 			message, ns := safe_parse(json, key, parser_fn)
+
+			if len(write_buffer) < write_offset+len(message)+10 {
+				new_buf := make([]byte, len(write_buffer)<<2)
+				copy(new_buf, write_buffer)
+				write_buffer = new_buf
+			}
 
 			binary.LittleEndian.PutUint32(write_buffer[write_offset:], uint32(ns/10))
 			write_offset += 4

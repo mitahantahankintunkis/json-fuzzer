@@ -40,6 +40,7 @@ RUN cargo install --path test-server
 FROM rust:latest AS rust-client
 WORKDIR /app
 COPY ./programs/clients/rust/Cargo.toml .
+COPY ./programs/clients/rust/rust-toolchain.toml .
 RUN mkdir src && touch ./src/lib.rs && cargo build --release && rm ./src/lib.rs
 
 COPY ./programs/clients/rust/src ./src/
@@ -209,7 +210,7 @@ RUN --mount=target=/var/lib/apt,type=cache,sharing=locked \
 	apt-get update && \
 	apt-get install -y lua5.4 luarocks openjdk-21-jre php ruby python3 python3-pip python3.12-venv valgrind \
 			libyajl-dev dotnet-runtime-8.0 libpoco-dev \
-			llvm-14 clang postgresql postgresql-contrib sudo
+			llvm-14 clang postgresql postgresql-contrib sudo curl
 			# llvm-14 libllvm14 llvm-14-dev llvm-14-linker-tools llvm-14-tools llvm-14-runtime
 
 	# python3 -m venv venv
@@ -246,6 +247,20 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 #
 # WORKDIR /app
 
+# Install Node
+ADD https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh install_nvm.sh
+ADD https://bun.sh/install install_bun.sh
+ADD https://deno.land/install.sh install_deno.sh
+
+RUN bash install_nvm.sh && \
+	\. /root/.nvm/nvm.sh && \
+	nvm install 24 && \
+	sh install_deno.sh && \
+	bash install_bun.sh && \
+	rm install_nvm.sh install_deno.sh install_bun.sh
+
+ENV PATH="$PATH:/usr/bin/versions/node/v24.13.0/bin"
+
 COPY --from=fuzzer /usr/local/cargo/bin/json-fuzzer /usr/local/bin/
 COPY --from=test-server /usr/local/cargo/bin/test-server /usr/local/bin/
 COPY --from=rust-client /usr/local/cargo/bin/rust-client /usr/local/bin/
@@ -260,12 +275,13 @@ COPY --from=radamsa /usr/local/bin/radamsa /usr/local/bin/
 COPY ./programs/clients/lua/main.lua .
 COPY ./programs/clients/php/main.php .
 COPY ./programs/clients/ruby/main.rb .
+COPY ./programs/clients/js ./js_client
 COPY ./programs/test.sh .
 COPY ./programs/run.sh .
 # COPY ./programs/payloads.toml .
 COPY ./programs/payloads.csv .
 # COPY ./programs/payloads_dos.toml .
-COPY ./scripts/analyze.sh .
+#COPY ./scripts/analyze.sh .
 
 
 # Rust

@@ -4,8 +4,9 @@
 # rm data/*test*
 
 (trap 'kill 0' SIGINT
-
     # cpp-client 1 &
+	#nvm install 24
+	#service postgresql start
 
     for parser_number in {0..20}; do
 		rust-client $parser_number &
@@ -17,11 +18,18 @@
 		ruby main.rb $parser_number &
 		python3 python/main.py $parser_number &
 		./dotnet_client/dotnet_client $parser_number &
+		node ./js_client/index.js $parser_number &
 
 		#java -jar clojure-client.jar $parser_number &
         # valgrind --leak-check=full -s ./client $parser_number &
         # valgrind --leak-check=full -s cpp_client $parser_number &
     done
+
+	# cd js_client
+	#
+	#    for parser_number in {0..20}; do
+	# 	node ./index.js $parser_number &
+	#    done
 
     test-server "$@"
 wait)

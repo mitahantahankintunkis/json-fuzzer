@@ -1,4 +1,4 @@
-use std::{process::Command, sync::Arc};
+use std::process::Command;
 
 use crate::{
     fuzz::{Fuzzer, TestCase},
@@ -6,7 +6,6 @@ use crate::{
 };
 
 pub struct Radamsa {
-    store: Arc<Box<Vec<Vec<u8>>>>,
     seed: usize,
     json: String,
     n: usize,
@@ -14,31 +13,20 @@ pub struct Radamsa {
 }
 
 impl Radamsa {
-    pub fn new(test_case: &TestCase, parent: Option<Radamsa>) -> Self {
-        // let n = 1000_000;
+    pub fn new(test_case: &TestCase) -> Result<Self, ()> {
         let n = 100;
         let seed: usize = 905391675;
+        let json = match String::from_utf8(decode_str(&test_case.json)) {
+            Ok(j) => j,
+            Err(_) => return Err(()),
+        };
 
-        match parent {
-            Some(p) => Radamsa {
-                store: p.store.clone(),
-                seed,
-                json: String::from_utf8_lossy(&decode_str(&test_case.json)).to_string(),
-                n,
-                i: 0,
-            },
-            None => {
-                let b = Box::new(Vec::with_capacity(n));
-
-                Radamsa {
-                    store: Arc::new(b),
-                    seed,
-                    json: String::from_utf8_lossy(&decode_str(&test_case.json)).to_string(),
-                    n,
-                    i: 0,
-                }
-            }
-        }
+        Ok(Radamsa {
+            seed,
+            json,
+            n,
+            i: 0,
+        })
     }
 }
 
@@ -52,24 +40,34 @@ impl Fuzzer for Radamsa {
         }
     }
 
-    fn copy_to_slice(&mut self, buf: &mut [u8]) -> Result<usize, ()> {
-        let cmd = Command::new("sh")
+    fn copy_to_slice(&self, buf: &mut [u8]) -> Result<usize, ()> {
+        let cmd = match Command::new("sh")
             .args(&[
                 "-c",
                 &format!(
-                    "echo '{}' | radamsa --seed {} --truncate 65535",
+                    "echo '{}' | radamsa --seed {} --truncate 32767",
                     self.json.replace("'", "\\'"),
                     self.seed + self.i,
                 ),
             ])
             .output()
-            .expect(&format!("Could not execute radamsa {}", self.json));
+        {
+            Ok(c) => c,
+            Err(_) => return Ok(0),
+        };
+        // .expect(&format!("Could not execute radamsa {}", self.json));
 
         let test_case =
-            &cmd.stdout[0..std::cmp::min((1 << 16) - 1, cmd.stdout.len())].trim_ascii_end();
+            &cmd.stdout[0..std::cmp::min((1 << 15) - 1, cmd.stdout.len())].trim_ascii_end();
+
+        // eprintln!(
+        //     "radamsa: {:?}",
+        //     String::from_utf8_lossy(test_case).to_string()
+        // );
 
         if test_case.len() > buf.len() {
             return Err(());
+            // panic!("Radamsa too large");
         }
 
         for (i, b) in test_case.iter().enumerate() {

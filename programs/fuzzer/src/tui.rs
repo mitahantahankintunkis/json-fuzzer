@@ -117,8 +117,8 @@ impl App {
 
     fn render_table(&self, area: Rect, buf: &mut Buffer) {
         // let layout = Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).split(area);
-        let title_row = Line::from_iter([Span::from("asdf")]);
-        title_row.render(area, buf);
+        // let title_row = Line::from_iter([Span::from("asdf")]);
+        // title_row.render(area, buf);
 
         let header = Row::new([
             "Client".into(),
@@ -292,7 +292,9 @@ impl App {
         //     Constraint::Percentage(50),
         // ];
 
-        let block = Block::new().title("Current status").borders(Borders::all());
+        let block = Block::new()
+            .title("Scheduler status")
+            .borders(Borders::all());
         let table = Table::new(rows, widths)
             .header(header)
             .block(block)
@@ -394,7 +396,7 @@ impl App {
         }
 
         let block = Block::new()
-            .title("Denial of Service")
+            .title("Bug oracle: Denial of Service")
             .borders(Borders::all());
         let table = Table::new(rows, widths)
             .header(header)
@@ -484,7 +486,9 @@ impl App {
             );
         }
 
-        let block = Block::new().title("Discrepancies").borders(Borders::all());
+        let block = Block::new()
+            .title("Bug oracle: Discrepancies")
+            .borders(Borders::all());
         let table = Table::new(rows, widths)
             .header(header)
             .block(block)

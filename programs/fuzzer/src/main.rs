@@ -1,3 +1,19 @@
+//            ______________
+//      ,===:'.,            `-._
+//           `:.`---.__         `-._
+//             `:.     `--.         `.
+//               \.        `.         `.
+//       (,,(,    \.         `.   ____,-`.,
+//    (,'     `/   \.   ,--.___`.'
+//,  ,'  ,--.  `,   \.;'         `
+// `{D, {    \  :    \;
+//   V,,'    /  /    //
+//   j;;    /  ,' ,-//.    ,---.      ,
+//   \;'   /  ,' /  _  \  /  _  \   ,'/
+//         \   `'  / \  `'  / \  `.' /
+//          `.___,'   `.__,'   `.__,'
+//
+//           Here be dragons
 extern crate libc;
 
 mod analyze;
@@ -121,7 +137,7 @@ fn main() -> color_eyre::Result<()> {
 
     let (result_tx, result_rx) = unbounded::<ParsingResult>();
     let (tui_tx, tui_rx) = unbounded::<ClientStatus>();
-    let mut orchestrator = Orchestrator::new(4, result_tx.clone());
+    let mut orchestrator = Orchestrator::new(args.workers, result_tx.clone());
     let mut analyzer = Analyzer::new(result_rx, orchestrator.job_tx.clone());
 
     // accept connections and process them serially
@@ -190,7 +206,7 @@ fn main() -> color_eyre::Result<()> {
     let tui_discrepancy_rx = analyzer.discrepancy_rx.clone();
 
     // Starts the fuzzing process
-    let _h = thread::spawn(move || {
+    let analyzer_handle = thread::spawn(move || {
         // Wait for all clients to connect.
         // Seed cases will not be loaded for clients that connect after this.
         thread::sleep(Duration::from_secs(5));
@@ -231,7 +247,7 @@ fn main() -> color_eyre::Result<()> {
     ratatui::restore();
 
     // TODO - join threads
-    _h.join().unwrap();
+    analyzer_handle.join().unwrap();
 
     Ok(())
 }

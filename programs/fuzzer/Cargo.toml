@@ -23,3 +23,4 @@ debug = 1
 
 [profile.test]
 inherits = "release"
+opt-level = 3

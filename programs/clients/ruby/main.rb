@@ -83,6 +83,8 @@ loop do
     write_buffer = "\x00" * (input_buffer_size << 2)
   end
 
+  # write_buffer.force_encoding('UTF-8')
+
   recv_all(sock, read_buffer, key_len)
   key = read_buffer[0, key_len]
 
@@ -114,7 +116,8 @@ loop do
     write_buffer[write_offset, 2] = [message.bytesize].pack('v')
     write_offset += 2
 
-    write_buffer[write_offset, message.bytesize] = message
+    msg = message.to_s.force_encoding('ASCII-8BIT')
+    write_buffer[write_offset, msg.bytesize] = msg
     write_offset += message.bytesize
   end
 

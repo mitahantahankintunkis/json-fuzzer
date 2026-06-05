@@ -35,7 +35,7 @@ public class JacksonParser implements Parser {
 				JsonNode root = this.objectMapper.readTree(json, offset, len);
 				// JsonNode root = this.objectMapper.readTree(s);
 				JsonNode el = root.get(key);
-				if (el == null) return KEY_NOT_FOUND;
+				if (el == null) return this.KEY_NOT_FOUND;
 
 				if (el.isTextual()) {
 					return el.asText();
@@ -44,7 +44,7 @@ public class JacksonParser implements Parser {
 				}
 			}
 		} catch (Exception e) {
-			return PARSE_ERROR;
+			return this.PARSE_ERROR;
 		}
 	}
 

@@ -1,0 +1,8 @@
+c_cjson	 {"0":"\x802","0":3}	UTF8_ERROR
+lua_cjson	 {"0":"2","0":"\x80"}	UTF8_ERROR
+c_json_parser	 {"0":"\x802","\'0":3}	UTF8_ERROR
+cpp_mongoose	 {"0":"\x802","\'0":3}	UTF8_ERROR
+go_gjson	 {"0":"\x8002","0":03}	UTF8_ERROR
+go_jsonparser	\x01{"0":"\x802","\'0":3}	UTF8_ERROR
+cpp_yajl	 {"\u0071":"\xc0\xb1e32769"}	UTF8_ERROR
+ruby_std	 {"q":2,"q":{"\xed\n\x80q":3}}	UTF8_ERROR

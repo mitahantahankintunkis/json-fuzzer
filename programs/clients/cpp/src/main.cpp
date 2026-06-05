@@ -329,7 +329,7 @@ char* parse_jansson(char* data, int json_size, char* key, int key_size, char* bu
 }
 
 
-char* parse_modsecurity(char* data, int json_size, char* key, int key_size, char* buf, int buf_size) {
+char* parse_yajl(char* data, int json_size, char* key, int key_size, char* buf, int buf_size) {
 	// TODO - optimize
 	char* path = (char*)malloc(key_size + 6);
 	sprintf(path, "json.%s", key);
@@ -486,7 +486,7 @@ char* parse_jsmn(char* data, int json_size, char* query_key, int key_size, char*
 			}
 
 			memcpy(buf, data + j, val_len);
-			buf[j + ret_val->end + 1] = 0;
+			buf[val_len] = 0;
 
 			try {
 				double d = std::stod(buf);
@@ -648,8 +648,8 @@ int main(int argc, char* argv[]) {
 
     switch (parser_number) {
         case 0:
-            parser_name = (char*)"cpp_modsecurity";
-			parser_fn = &parse_modsecurity;
+            parser_name = (char*)"cpp_yajl";
+			parser_fn = &parse_yajl;
             break;
         case 1:
             parser_name = (char*)"c_mjson";

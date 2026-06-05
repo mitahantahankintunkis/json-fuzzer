@@ -29,6 +29,8 @@ public class App {
 
         Parser[] parsers = new Parser[] {
 			new JacksonParser(),
+			new JSONParser(),
+			new GsonParser(),
         };
 
         if (parserNumber >= parsers.length) {
@@ -36,8 +38,6 @@ public class App {
         }
 
 		Parser parser = parsers[parserNumber];
-        // String name = parsers[parserNumber].name;
-        // ParserFunction parserFn = parsers[parserNumber].fn;
 
         // Connect repeatedly to TCP socket HOST:PORT
         Socket socket = new Socket();

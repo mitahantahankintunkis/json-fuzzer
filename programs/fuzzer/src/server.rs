@@ -63,6 +63,7 @@ pub struct ParsingResult {
     pub compressed_bytes: Vec<(String, Encoder)>,
     pub fuzzed: bool,
     pub parser_count: usize,
+    pub total_testcase_bytes: usize,
     // pub fuzzer: Box<dyn Fuzzer>,
     // pub coverage: HashMap<u32, TestCase>,
 }
@@ -87,8 +88,13 @@ fn minimum_parse_time(
     send_buffer[5..9].copy_from_slice(&(key_len as u32).to_le_bytes());
     send_buffer[9..9 + key_len].copy_from_slice(&testcase.key.bytes().collect::<Vec<u8>>());
 
+    let mut span = 0;
+
     // Measure parent testcase parsing time accurately
-    for _ in 0..repeats {
+    // for _ in 0..repeats {
+    while span < repeats {
+        span += 1;
+
         // Send testcases one at a time to hopefully trash the CPU cache
         let mut write_offset: usize = header_bytes;
 
@@ -128,6 +134,7 @@ fn minimum_parse_time(
         let ns: f64 = u32::from_le_bytes(read_buffer[0..4].try_into().unwrap()) as f64 * 10.0;
         if min > ns {
             min = ns;
+            span = 0;
         }
 
         if output.is_empty() {
@@ -221,6 +228,12 @@ impl Client {
                     panic!("{} Invalid testcase id: {:?}", client_name, testcase);
                 }
 
+                // Hack - skip testcases that are too large.
+                // They cause an error later down the line
+                if testcase.json.len() >= u16::MAX as usize - 256 {
+                    continue;
+                }
+
                 // Update TUI
                 // conn.tui_tx
                 //     .send(ClientStatus {
@@ -272,6 +285,7 @@ impl Client {
                             compressed_bytes: compressed,
                             fuzzed: false,
                             parser_count: 0,
+                            total_testcase_bytes: 0,
                         })
                         .unwrap();
                     continue;
@@ -311,6 +325,7 @@ impl Client {
                             duration: parent_median,
                             testcase: testcase.clone(),
                             output: parent_output.clone(),
+                            fuzzer_name: String::new(),
                         }),
                         parses_per_second: 0.0,
                     })
@@ -319,6 +334,7 @@ impl Client {
                 let fuzzers = create_fuzzers(&testcase);
                 let mut elapsed = 0.0;
                 let mut total_payloads = 0;
+                let mut total_testcase_bytes = 0;
 
                 for mut fuzzer in fuzzers {
                     if stopped {
@@ -351,6 +367,7 @@ impl Client {
                                     );
                                     write_offset += n + 2;
                                     total_payloads += 1;
+                                    total_testcase_bytes += n;
                                 }
                                 Err(_) => break,
                             }
@@ -408,6 +425,7 @@ impl Client {
                                             None,
                                         ),
                                         output: "".into(),
+                                        fuzzer_name: String::new(),
                                     }),
                                     parses_per_second: (total_payloads as f64 * 1000_000.0)
                                         / elapsed,
@@ -450,11 +468,13 @@ impl Client {
 
                             // JSON test case as String
                             let buf = &send_buffer[send_offset..send_offset + sent_size];
-                            let testcase_str = buf
+                            let mut testcase_str = buf
                                 .iter()
                                 .map(|c| byte_to_string(*c))
                                 .collect::<Vec<String>>()
                                 .join("");
+                            testcase_str.truncate(u16::MAX as usize - 256);
+
                             send_offset += sent_size;
 
                             // Parsing duration
@@ -572,6 +592,7 @@ impl Client {
                                             parser: Some(client_name.clone()),
                                         },
                                         output,
+                                        fuzzer_name: fuzzer.id(),
                                     });
                                 }
                             }
@@ -639,6 +660,7 @@ impl Client {
                             duration: parent_median,
                             testcase: testcase.clone(),
                             output: parent_output.clone(),
+                            fuzzer_name: String::new(),
                         }),
                         parses_per_second: (total_payloads as f64 * 1000_000.0) / elapsed,
                     })
@@ -656,6 +678,7 @@ impl Client {
                         compressed_bytes: compressed,
                         fuzzed: true,
                         parser_count: 0,
+                        total_testcase_bytes,
                     })
                     .unwrap();
             }
@@ -688,6 +711,7 @@ pub struct Orchestrator {
     pub job_tx: Sender<Job>,
     job_rx: Receiver<Job>,
     result_tx: Sender<ParsingResult>,
+    crashed_n: usize,
 }
 
 impl Orchestrator {
@@ -709,6 +733,7 @@ impl Orchestrator {
             job_tx,
             job_rx,
             result_tx,
+            crashed_n: 0,
         }
     }
 
@@ -729,6 +754,7 @@ impl Orchestrator {
                     }
 
                     self.try_pop_queue();
+                    self.try_pop_queue();
                 },
                 recv(self.done_rx) -> res => {
                     let mut res = res.unwrap();
@@ -736,11 +762,12 @@ impl Orchestrator {
 
                     // println!("Server received result: {} {:?}", res.id, res.testcase);
                     if res.fuzzed {
-                        res.parser_count = self.clients.len();
+                        res.parser_count = self.clients.len() - self.crashed_n;
                         self.last_job_time[res.parser_id] = Instant::now();
                         self.result_tx.send(res).unwrap();
                     }
 
+                    self.try_pop_queue();
                     self.try_pop_queue();
                 },
             }
@@ -764,6 +791,7 @@ impl Orchestrator {
 
         self.task_queue.push(BTreeSet::new());
         self.last_job_time.push(Instant::now());
+        self.try_pop_queue();
         self.try_pop_queue();
     }
 
@@ -815,6 +843,16 @@ impl Orchestrator {
             .collect::<Vec<(usize, &Instant)>>();
         indices.sort_by(|a, b| a.1.cmp(&b.1));
 
+        // Check if the client has crashed
+        for (i, _) in &indices {
+            if self.clients[*i].handle.is_finished() {
+                self.active.remove(i);
+                self.task_queue[*i].clear();
+                self.crashed_n += 1;
+                continue;
+            }
+        }
+
         for (i, _) in &indices {
             // let i = (i + self.round_robin_i) % self.clients.len();
 
@@ -824,12 +862,6 @@ impl Orchestrator {
             //     self.active.contains(&i),
             //     self.task_queue[i].first()
             // );
-
-            // Check if the client has crashed
-            if self.clients[*i].handle.is_finished() {
-                self.active.remove(i);
-                continue;
-            }
 
             if self.active.contains(&i) {
                 continue;
@@ -860,8 +892,11 @@ impl Orchestrator {
             // println!();
 
             let testcase = self.task_queue[i].pop_first().unwrap();
-            self.active.insert(i);
-            self.clients[i].job_tx.send(testcase).unwrap();
+
+            if !self.clients[i].handle.is_finished() {
+                self.active.insert(i);
+                self.clients[i].job_tx.send(testcase).unwrap();
+            }
         }
     }
 }
@@ -871,6 +906,7 @@ pub struct TimeData {
     pub duration: f64,
     pub testcase: TestCase,
     pub output: String,
+    pub fuzzer_name: String,
 }
 
 impl PartialEq for TimeData {

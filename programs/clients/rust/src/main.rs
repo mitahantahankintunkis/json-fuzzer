@@ -34,6 +34,51 @@ fn parse_json(data: &[u8], key: &str) -> String {
     }
 }
 
+fn parse_jsonc(data: &[u8], key: &str) -> String {
+    let json = match str::from_utf8(data) {
+        Ok(s) => s,
+        Err(_) => return String::from(PARSE_ERROR),
+    };
+
+    let parsed = jsonc_parser::parse_to_value(json, &Default::default());
+
+    match parsed {
+        Ok(Some(jsonc_parser::JsonValue::Object(obj))) => match obj.get_number(key) {
+            Some(n) => n.to_string(),
+            None => String::from(KEY_NOT_FOUND),
+        },
+        _ => String::from(PARSE_ERROR),
+    }
+}
+
+fn parse_jsonc_safe(data: &[u8], key: &str) -> String {
+    let json = match str::from_utf8(data) {
+        Ok(s) => s,
+        Err(_) => return String::from(PARSE_ERROR),
+    };
+
+    let parsed = jsonc_parser::parse_to_value(
+        json,
+        &jsonc_parser::ParseOptions {
+            allow_comments: false,
+            allow_loose_object_property_names: false,
+            allow_trailing_commas: false,
+            allow_missing_commas: false,
+            allow_single_quoted_strings: false,
+            allow_hexadecimal_numbers: false,
+            allow_unary_plus_numbers: false,
+        },
+    );
+
+    match parsed {
+        Ok(Some(jsonc_parser::JsonValue::Object(obj))) => match obj.get_number(key) {
+            Some(n) => n.to_string(),
+            None => String::from(KEY_NOT_FOUND),
+        },
+        _ => String::from(PARSE_ERROR),
+    }
+}
+
 fn parse_sqlite(data: &[u8], key: &str, conn: &Connection) -> String {
     // conn.execute("UPDATE test SET x = ?1 WHERE id = 1", [data])
     //     .unwrap();
@@ -170,31 +215,36 @@ fn main() -> std::io::Result<()> {
     };
 
     let sqlite_conn = Connection::open_in_memory().unwrap();
-    sqlite_conn
-        .execute("CREATE TABLE test(id INTEGER PRIMARY KEY, x JSON)", [])
-        .unwrap();
+    // sqlite_conn
+    //     .execute("CREATE TABLE test(id INTEGER PRIMARY KEY, x JSON)", [])
+    //     .unwrap();
 
-    let mut postgres_client = Client::connect("host=postgres user=postgres", NoTls)
-        .expect("Rust: Could not connect to postgres");
-    postgres_client
-        .batch_execute("CREATE TABLE IF NOT EXISTS test(id INTEGER PRIMARY KEY, x JSONB)")
-        .unwrap();
+    let mut postgres_client = Client::connect(
+        "host=/var/run/postgresql user=root password=root dbname=test",
+        NoTls,
+    )
+    .expect("Rust: Could not connect to postgres");
+    // postgres_client
+    //     .batch_execute("CREATE TABLE IF NOT EXISTS test(id INTEGER PRIMARY KEY, x JSONB)")
+    //     .unwrap();
 
-    sqlite_conn
-        .execute("INSERT INTO test VALUES (1, '{}')", [])
-        .unwrap();
-    postgres_client
-        .execute(
-            "INSERT INTO test VALUES ($1, '{}') ON CONFLICT DO NOTHING",
-            &[&(parser_number as i32)],
-        )
-        .unwrap();
+    // sqlite_conn
+    //     .execute("INSERT INTO test VALUES (1, '{}')", [])
+    //     .unwrap();
+    // postgres_client
+    //     .execute(
+    //         "INSERT INTO test VALUES ($1, '{}') ON CONFLICT DO NOTHING",
+    //         &[&(parser_number as i32)],
+    //     )
+    //     .unwrap();
 
     let name = match parser_number {
         0 => "rust_serde",
         1 => "rust_json",
         2 => "sqlite3",
         3 => "postgres",
+        4 => "rust_jsonc",
+        // 5 => "rust_jsonc_safe",
         _ => exit(1),
     };
 
@@ -255,6 +305,8 @@ fn main() -> std::io::Result<()> {
                         1 => parse_json(data, &key),
                         2 => parse_sqlite(data, &key, &sqlite_conn),
                         3 => parse_postgres(data, &key, &mut postgres_client, parser_number as i32),
+                        4 => parse_jsonc(data, &key),
+                        // 5 => parse_jsonc_safe(data, &key),
                         _ => exit(1),
                     };
 

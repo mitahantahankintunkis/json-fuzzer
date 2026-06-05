@@ -1,10 +1,10 @@
 use std::fmt::Display;
 
-use crate::comprehensive_fuzzer::ComprehensiveFuzzer;
+use crate::{comprehensive_fuzzer::ComprehensiveFuzzer, radamsa_wrapper::Radamsa};
 
 pub trait Fuzzer {
     fn advance(&mut self) -> Result<(), ()>;
-    fn copy_to_slice(&mut self, buf: &mut [u8]) -> Result<usize, ()>;
+    fn copy_to_slice(&self, buf: &mut [u8]) -> Result<usize, ()>;
     fn id(&self) -> String;
 }
 
@@ -48,7 +48,7 @@ impl PartialOrd for TestCase {
 }
 
 impl TestCase {
-    pub fn new(json: String, key: String, parent: Option<TestCase>) -> Self {
+    pub fn new(mut json: String, key: String, parent: Option<TestCase>) -> Self {
         let mut parent_id = None;
         let mut depth = 0;
 
@@ -56,6 +56,8 @@ impl TestCase {
             parent_id = Some(parent.id);
             depth = parent.depth + 1;
         }
+
+        json.truncate(u16::MAX as usize - 256);
 
         TestCase {
             id: -1,
@@ -135,27 +137,31 @@ pub enum Fuzzers {
 }
 
 pub fn create_fuzzers(testcase: &TestCase) -> Vec<Box<dyn Fuzzer>> {
-    let mut ret: Vec<Box<dyn Fuzzer>> =
-        vec![Box::new(ComprehensiveFuzzer::insert_grammar(testcase))];
+    let mut ret: Vec<Box<dyn Fuzzer>> = Vec::new();
 
-    if testcase.weight <= 1.0 {
+    // if testcase.weight <= 1.0 {
+    if testcase.json.len() < 30 {
+        ret.push(Box::new(ComprehensiveFuzzer::insert_grammar(testcase)));
         ret.push(Box::new(ComprehensiveFuzzer::insert_single(testcase)));
         ret.push(Box::new(ComprehensiveFuzzer::remove_single(testcase)));
-        // ret.push(Box::new(ComprehensiveFuzzer::insert_single_word(testcase)));
-        // ret.push(Box::new(ComprehensiveFuzzer::replace_single_word(testcase)));
     }
 
-    // if testcase.depth == 0 {
-    //     ret.push(Box::new(ComprehensiveFuzzer::insert_unicode(testcase)));
-    //     ret.push(Box::new(ComprehensiveFuzzer::replace_unicode(testcase)));
-    //
-    //     if testcase.json.len() < 30 {
-    //         ret.push(Box::new(ComprehensiveFuzzer::insert_two(testcase)));
-    //         ret.push(Box::new(ComprehensiveFuzzer::remove_two(testcase)));
-    //     }
-    //
-    //     ret.push(Box::new(Radamsa::new(testcase, None)));
-    // }
+    if testcase.depth == 0 {
+        ret.push(Box::new(ComprehensiveFuzzer::insert_unicode(testcase)));
+        ret.push(Box::new(ComprehensiveFuzzer::replace_unicode(testcase)));
+        ret.push(Box::new(ComprehensiveFuzzer::insert_single_word(testcase)));
+        ret.push(Box::new(ComprehensiveFuzzer::replace_single_word(testcase)));
+
+        //     if testcase.json.len() < 30 {
+        //         ret.push(Box::new(ComprehensiveFuzzer::insert_two(testcase)));
+        //         ret.push(Box::new(ComprehensiveFuzzer::remove_two(testcase)));
+        //     }
+        //     ret.push(Box::new(Radamsa::new(testcase, Nne)));
+    }
+
+    if let Ok(r) = Radamsa::new(testcase) {
+        ret.push(Box::new(r));
+    }
 
     ret
 }

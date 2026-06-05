@@ -16,7 +16,7 @@ PARSE_ERROR = 'PARSE_ERROR'
 
 def parse_json(data, key):
     try:
-        parsed = json.loads(data.rstrip(b'\0').decode('utf-8'))
+        parsed = json.loads(data)
         if key in parsed:
             return json.dumps(parsed[key])
         else:
@@ -28,7 +28,7 @@ def parse_json(data, key):
 def parse_simplejson(data, key):
     try:
         # parsed = simplejson.load(data)
-        parsed = simplejson.loads(data.rstrip(b'\0').decode('utf-8'))
+        parsed = simplejson.loads(data)
         if key in parsed:
             return simplejson.dumps(parsed[key])
         else:
@@ -40,7 +40,7 @@ def parse_simplejson(data, key):
 def parse_ujson(data, key):
     try:
         # parsed = simplejson.load(data)
-        parsed = ujson.loads(data.rstrip(b'\0').decode('utf-8'))
+        parsed = ujson.loads(data)
         if key in parsed:
             return ujson.dumps(parsed[key])
         else:
@@ -51,7 +51,7 @@ def parse_ujson(data, key):
 
 def parse_orjson(data, key):
     try:
-        parsed = orjson.loads(data.rstrip(b'\0').decode('utf-8'))
+        parsed = orjson.loads(data)
         if key in parsed:
             return orjson.dumps(parsed[key]).decode('utf-8')
         else:
@@ -83,7 +83,10 @@ def parse_msgspec(data, key):
 def parse_rapidjson(data, key):
     try:
         query = rapidjson.loads(data)
-        return json.dumps(query[key])
+        if key in query:
+            return rapidjson.dumps(query[key])
+        else:
+            return KEY_NOT_FOUND
 
     except Exception:
         return PARSE_ERROR
@@ -97,7 +100,7 @@ def main():
 
     match parser_number:
         case 0:
-            name = b'python_json'
+            name = b'python_std'
             parser_fn = parse_json
         case 1:
             name = b'python_simplejson'
