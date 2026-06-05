@@ -8,18 +8,18 @@ CREATE TEMP TABLE filtered_results AS
 		--AND root_json = '{"0":2,"0":3}';
 
 CREATE TEMP TABLE key_precedence AS
-	SELECT DISTINCT parser0, parser1, json, output0, output1
+	SELECT DISTINCT parser0, parser1, json, key, output0, output1
 	FROM filtered_results
 	WHERE root_json == json
 	UNION
-	SELECT DISTINCT parser1 AS parser0, parser0 AS parser1, json, output1 AS output0, output0 AS output1
+	SELECT DISTINCT parser1 AS parser0, parser0 AS parser1, json, key, output1 AS output0, output0 AS output1
 	FROM filtered_results
 	WHERE root_json == json;
 
 -- actual results
 CREATE TEMP TABLE results AS
 	SELECT
-		parser0 AS p0, parser1 AS p1, root_json, json, output0 AS o0, output1 AS o1,
+		parser0 AS p0, parser1 AS p1, root_json, json, key, output0 AS o0, output1 AS o1,
 		RANK() OVER ( PARTITION BY parser0, parser1, root_json ORDER BY LENGTH(json), json) AS rank
 	FROM filtered_results AS a
 	WHERE 1==1
@@ -129,18 +129,18 @@ CREATE TEMP TABLE results AS
 
 -- expanded results
 SELECT DISTINCT
-	p0 AS parser0, p1 AS parser1, root_json AS seed, REPLACE(json, '\xf0\x9f\x98\x80', '😀') AS testcase, o0 AS output0, o1 AS output1
+	p0 AS parser0, p1 AS parser1, root_json AS seed, REPLACE(json, '\xf0\x9f\x98\x80', '😀') AS testcase, key, o0 AS parser0_value_for_key, o1 AS parser1_value_for_key
 FROM (
 	-- discrepancies
-	SELECT p0, p1, root_json, json, o0, o1, rank
+	SELECT p0, p1, root_json, json, key, o0, o1, rank
 	FROM temp.results
 	UNION ALL
-	SELECT p1 AS p0, p0 AS p1, root_json, json, o1 AS o0, o0 AS o1, rank
+	SELECT p1 AS p0, p0 AS p1, root_json, json, key, o1 AS o0, o0 AS o1, rank
 	FROM temp.results
 
 	-- duplicate keys
 	UNION ALL
-	SELECT parser0 AS p0, parser1 AS p1, json AS root_json, json, output0 AS o0, output1 AS o1, 0 AS rank
+	SELECT parser0 AS p0, parser1 AS p1, json AS root_json, json, key, output0 AS o0, output1 AS o1, 0 AS rank
 	FROM key_precedence
 )
 WHERE rank < 100
