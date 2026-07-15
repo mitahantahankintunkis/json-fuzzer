@@ -17,9 +17,9 @@
 extern crate libc;
 
 mod analyze;
-mod comprehensive_fuzzer;
 mod compression;
 mod fuzz;
+mod okfuzz;
 mod radamsa_wrapper;
 mod server;
 mod tui;
@@ -42,87 +42,81 @@ const SOCK_FILE: &str = "/tmp/fuzzer.sock";
 #[derive(Parser, Debug, Clone)]
 #[command(version, about, long_about = None)]
 pub struct Args {
-    // #[arg(short, long, action)]
-    // analyze: bool,
     #[arg(short, long)]
     display_results: Option<Vec<String>>,
 
     #[arg(
         short,
         long,
-        default_value = "8",
+        default_value_t = 8,
         help = "How many threads are used for JSON parsing. Recommended two \
         less than the maximum supported by the system."
     )]
     workers: usize,
 
+    #[arg(long, default_value_t = 1 << 16, help = "Maximum size of the batched test cases send to the clients")]
+    batch_size: usize,
+
     #[arg(
         short,
         long,
         action,
-        help = "Send one JSON text at a time. Useful for detecting crashes"
+        help = "Send one payload at a time. Useful for detecting crashes"
     )]
     no_batching: bool,
-}
 
-// fn debug(paths: &[String]) {
-//     for path in paths {
-//         let file_name = path.split("/").last().unwrap();
-//         let split: Vec<&str> = file_name.split(';').collect();
-//
-//         if split.len() != 4 {
-//             eprintln!("Malformed filename '{}'", file_name);
-//             continue;
-//         }
-//
-//         let file_parser_name = &split[0];
-//         let file_fuzzer_name = &split[1];
-//         let file_json_id = &split[2];
-//
-//         for testcase in &load_testcases() {
-//             for fuzzer in &mut create_fuzzers(&testcase) {
-//                 let digest = format!("{:x}", md5::compute(&testcase.json))[0..8].to_string();
-//
-//                 if *file_fuzzer_name == fuzzer.id() && *file_json_id == digest {
-//                     println!("\n{} {}:", file_parser_name, testcase.json);
-//
-//                     let bytes = std::fs::read(path).expect("Could not read file");
-//                     let mut decoder = Decoder::new(Box::new(bytes));
-//
-//                     // Pop parser name
-//                     decoder.next_message();
-//
-//                     loop {
-//                         let mut buf = vec![0u8; 1 << 16];
-//                         let n = fuzzer.copy_to_slice(&mut buf).unwrap();
-//                         let json = buf[0..n]
-//                             .iter()
-//                             .map(|c| byte_to_string(*c))
-//                             .collect::<Vec<String>>()
-//                             .join("");
-//
-//                         let output = decoder.next_message().expect("Not enough outputs");
-//
-//                         println!("{} -> {}", json, output);
-//
-//                         if fuzzer.advance().is_err() {
-//                             break;
-//                         }
-//                     }
-//                     break;
-//                 }
-//             }
-//         }
-//     }
-// }
+    #[arg(
+        long,
+        help = "Measure parsing duration of the specified parser 10 million times"
+    )]
+    measure_timing: Option<String>,
+
+    #[arg(
+        long,
+        action,
+        help = "Measure how different batch sizes affect parsing performance"
+    )]
+    measure_batch_size_timings: bool,
+
+    #[arg(
+        long,
+        help = "Test case used to measure parsing durations. Default '{\"q\":2,\"q\":3}'. Uses key 'q'",
+        default_value = r#"{"q":2,"q":3}"#
+    )]
+    measure_testcase: String,
+
+    #[arg(long, help = "Measure timing only once with more accuracy")]
+    measure_timing_once: bool,
+
+    #[arg(
+        long,
+        help = "How many times larger does a parsing time have to be related to its parent value to be logged",
+        default_value_t = 2.0
+    )]
+    dos_ratio_treshold: f64,
+
+    #[arg(long, help = "Bias value alpha", default_value_t = 1.0)]
+    alpha: f64,
+
+    #[arg(long, help = "Bias value beta", default_value_t = 2.0)]
+    beta: f64,
+
+    #[arg(long, help = "Bias value gamma", default_value_t = 3.0)]
+    gamma: f64,
+
+    #[arg(
+        long,
+        help = "DoS large test case array size",
+        default_value_t = 1_000_000
+    )]
+    dos_testcase_array_size: usize,
+
+    #[arg(long, default_value_t = 10_000)]
+    testcase_measurement_repeats: usize,
+}
 
 fn main() -> color_eyre::Result<()> {
     let args = Args::parse();
-
-    // if let Some(paths) = args.display_results {
-    //     debug(&paths);
-    //     return Ok(());
-    // }
 
     if exists(SOCK_FILE).unwrap() {
         remove_file(SOCK_FILE).expect(&format!(
@@ -137,12 +131,18 @@ fn main() -> color_eyre::Result<()> {
 
     let (result_tx, result_rx) = unbounded::<ParsingResult>();
     let (tui_tx, tui_rx) = unbounded::<ClientStatus>();
-    let mut orchestrator = Orchestrator::new(args.workers, result_tx.clone());
-    let mut analyzer = Analyzer::new(result_rx, orchestrator.job_tx.clone());
+    let (connection_tx, connection_rx) = unbounded::<ConnectionInfo>();
+    let mut orchestrator = Orchestrator::new(
+        args.workers,
+        args.batch_size,
+        connection_rx,
+        result_tx.clone(),
+    );
+    let mut analyzer = Analyzer::new(args.clone(), result_rx, orchestrator.job_tx.clone());
 
     // accept connections and process them serially
     // Unix domain sockets
-    let unix_conn_tx = orchestrator.connection_tx.clone();
+    let unix_conn_tx = connection_tx.clone();
     let unix_tui_tx = tui_tx.clone();
     thread::spawn(move || {
         let unix_listener = UnixListener::bind(SOCK_FILE).unwrap();
@@ -178,7 +178,7 @@ fn main() -> color_eyre::Result<()> {
     });
 
     // TCP sockets
-    let tcp_conn_tx = orchestrator.connection_tx.clone();
+    let tcp_conn_tx = connection_tx.clone();
     let tcp_tui_tx = tui_tx.clone();
     thread::spawn(move || {
         let tcp_listener = TcpListener::bind("127.0.0.1:5000").unwrap();
@@ -198,56 +198,60 @@ fn main() -> color_eyre::Result<()> {
         }
     });
 
-    thread::spawn(move || {
-        orchestrator.join(&args);
-    });
+    if args.measure_timing.is_some() {
+        orchestrator.measure_timing(&args);
+    } else if args.measure_batch_size_timings {
+        orchestrator.measure_batching(&args);
+    } else {
+        thread::spawn(move || {
+            orchestrator.join();
+        });
 
-    let tui_dos_rx = analyzer.dos_rx.clone();
-    let tui_discrepancy_rx = analyzer.discrepancy_rx.clone();
+        let tui_dos_rx = analyzer.dos_rx.clone();
+        let tui_discrepancy_rx = analyzer.discrepancy_rx.clone();
 
-    // Starts the fuzzing process
-    let analyzer_handle = thread::spawn(move || {
-        // Wait for all clients to connect.
-        // Seed cases will not be loaded for clients that connect after this.
-        thread::sleep(Duration::from_secs(5));
-        analyzer.analyze();
-    });
+        // Starts the fuzzing process
+        let analyzer_handle = thread::spawn(move || {
+            // Wait for all clients to connect.
+            // Seed cases will not be loaded for clients that connect after this.
+            thread::sleep(Duration::from_secs(5));
+            analyzer.analyze();
+        });
 
-    color_eyre::install()?;
-    let mut tui = tui::App::new();
-    let mut terminal = ratatui::init();
+        color_eyre::install()?;
+        let mut tui = tui::App::new();
+        let mut terminal = ratatui::init();
 
-    while !tui.quit {
-        if let Err(e) = tui.handle_events() {
-            eprintln!("{}", e);
-            break;
+        while !tui.quit {
+            if let Err(e) = tui.handle_events() {
+                eprintln!("{}", e);
+                break;
+            }
+
+            while let Ok(status) = tui_rx.try_recv() {
+                tui.push_status(status);
+            }
+
+            while let Ok(dos) = tui_dos_rx.try_recv() {
+                tui.push_dos(dos);
+            }
+
+            while let Ok(discrepancy) = tui_discrepancy_rx.try_recv() {
+                tui.push_discrepancy(discrepancy);
+            }
+
+            if tui.updated {
+                terminal.draw(|frame| {
+                    frame.render_widget(&tui, frame.area());
+                })?;
+            }
         }
 
-        while let Ok(status) = tui_rx.try_recv() {
-            tui.push_status(status);
-        }
+        ratatui::restore();
 
-        while let Ok(dos) = tui_dos_rx.try_recv() {
-            tui.push_dos(dos);
-        }
-
-        while let Ok(discrepancy) = tui_discrepancy_rx.try_recv() {
-            tui.push_discrepancy(discrepancy);
-        }
-
-        if tui.updated {
-            // tui.updated = false;
-
-            terminal.draw(|frame| {
-                frame.render_widget(&tui, frame.area());
-            })?;
-        }
+        // TODO - join threads
+        analyzer_handle.join().unwrap();
     }
-
-    ratatui::restore();
-
-    // TODO - join threads
-    analyzer_handle.join().unwrap();
 
     Ok(())
 }

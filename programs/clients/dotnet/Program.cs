@@ -18,7 +18,6 @@ class Program
             if (!int.TryParse(args[0], out parserNumber)) parserNumber = 0;
         }
 
-        // var parsers = new (string name, Func<ReadOnlySpan<byte>, string, string> fn)[] {
         var parsers = new (string name, JsonParserDelegate fn)[] {
             ("dotnet_std", ParseStd),
             ("dotnet_newtonsoft", ParseNewtonsoft),
@@ -64,15 +63,6 @@ class Program
 
             while (true)
             {
-                // var watch0 = System.Diagnostics.Stopwatch.StartNew();
-                // var watch1 = System.Diagnostics.Stopwatch.StartNew();
-                //
-                // double t_recv = 0;
-                // double t_parse = 0;
-                // double t_send = 0;
-                // double t_other = 0;
-                //
-                // watch0.Restart();
                 try
                 {
                     networkStream.ReadExactly(headerBuf, 0, 9);
@@ -82,16 +72,9 @@ class Program
                     return 0;
                 }
 
-                // t_recv += watch0.Elapsed.TotalNanoseconds;
-
                 uint input_buffer_size = BitConverter.ToUInt32(headerBuf, 0);
                 uint key_len = BitConverter.ToUInt32(headerBuf, 5);
-                // uint bufferSize = BitConverter.ToUInt32(headerBuf, 0);
-                // uint payloadSize = BitConverter.ToUInt16(headerBuf, 4);
-                // uint batchSize = BitConverter.ToUInt32(headerBuf, 6);
-
                 uint max_len = Math.Max(key_len, input_buffer_size);
-                // uint totalPayload = batchSize * payloadSize;
 
                 if (readBuffer.Length < max_len)
                 {
@@ -103,13 +86,11 @@ class Program
                     writeBuffer = new byte[input_buffer_size << 2];
                 }
 
-                // watch0.Restart();
                 networkStream.ReadExactly(readBuffer, 0, (int)key_len);
 
                 string key = Encoding.UTF8.GetString(readBuffer, 0, (int)key_len);
 
                 networkStream.ReadExactly(readBuffer, 0, (int)input_buffer_size);
-                // t_recv += watch0.Elapsed.TotalNanoseconds;
 
                 int writeOffset = 4;
                 int readOffset = 0;
@@ -117,25 +98,17 @@ class Program
 
                 while (readOffset < input_buffer_size)
                 {
-                    // watch0.Restart();
                     int json_size = BitConverter.ToUInt16(readBuffer, readOffset);
                     readOffset += 2;
 
                     var data = readBuffer.AsSpan(readOffset, json_size);
-                    // string data = Encoding.UTF8.GetString(readBuffer, readOffset, json_size);
                     readOffset += json_size;
-                    // t_other += watch0.Elapsed.TotalNanoseconds;
 
                     watch.Restart();
                     string message = parserFn(data, key);
                     UInt32 elapsed = (UInt32)(watch.Elapsed.TotalNanoseconds / 10);
-                    // Console.Error.Write("1: ", watch.Elapsed.TotalNanoseconds);
-                    // t_parse += watch.Elapsed.TotalNanoseconds;
-                    //
-                    // watch0.Restart();
 
                     var ns_bytes = BitConverter.GetBytes(elapsed);
-                    // if (BitConverter.IsLittleEndian) Array.Reverse(ns_bytes);
                     Array.Copy(ns_bytes, 0, writeBuffer, writeOffset, 4);
                     writeOffset += 4;
 
@@ -153,11 +126,7 @@ class Program
 
                     Array.Copy(msgBytes, 0, writeBuffer, writeOffset, msgBytes.Length);
                     writeOffset += msgBytes.Length;
-
-                    // t_other += watch0.Elapsed.TotalNanoseconds;
                 }
-
-                // watch0.Restart();
 
                 // Prepend 4-byte little-endian size
                 int size = writeOffset - 4;
@@ -168,14 +137,6 @@ class Program
 
                 networkStream.Write(writeBuffer, 0, writeOffset);
                 networkStream.Flush();
-
-                // t_send += watch0.Elapsed.TotalNanoseconds;
-                // Console.Error.WriteLine("{0} size    {1}", name, input_buffer_size);
-                // Console.Error.WriteLine("{0} t_recv  {1}", name, t_recv);
-                // Console.Error.WriteLine("{0} t_parse {1}", name, t_parse);
-                // Console.Error.WriteLine("{0} t_send  {1}", name, t_send);
-                // Console.Error.WriteLine("{0} t_other {1}", name, t_other);
-                // Console.Error.WriteLine("");
             }
         }
     }

@@ -35,7 +35,6 @@ $parse_std = function(string $data, string $key): string {
 
 // Entry point
 $parser_number = $argc === 2 ? intval($argv[1]) : 0;
-/* $parser_fn = parse_std; */
 
 switch ($parser_number) {
     case 0:
@@ -72,9 +71,6 @@ while (true) {
         exit(0);
     }
 
-    /* $buffer_size = unpack("V", substr($header, 0, 4))[1]; // little-endian u32 */
-    /* $payload_size = unpack("v", substr($header, 4, 2))[1]; // little-endian u16 */
-    /* $batch_size   = unpack("v", substr($header, 6, 2))[1]; // little-endian u16 */
     $input_buffer_size = unpack("V", $header, 0)[1];
     $key_len = unpack("V", $header, 5)[1];
 

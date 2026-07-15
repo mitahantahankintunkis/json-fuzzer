@@ -27,8 +27,9 @@ def parse_json(data, key):
 
 def parse_simplejson(data, key):
     try:
-        # parsed = simplejson.load(data)
-        parsed = simplejson.loads(data)
+        #parsed = simplejson.load(data)
+        s = data.decode('utf-8')
+        parsed = simplejson.loads(s)
         if key in parsed:
             return simplejson.dumps(parsed[key])
         else:

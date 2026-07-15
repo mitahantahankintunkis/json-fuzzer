@@ -146,7 +146,6 @@ client.on('data', (chunk) => {
 		console.error("JS: Could not send entire buffer");
 	}
 
-	// internalBuffer = internalBuffer.slice(totalExpectedLen);
 	internalBuffer = Buffer.alloc(0);
 });
 

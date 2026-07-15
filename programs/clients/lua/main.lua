@@ -3,32 +3,13 @@
 local socket = require("socket")
 socket.unix = require("socket.unix")
 local cjson = require("cjson.safe")
---local simdjson = require("resty.simdjson")
--- local bit32 = require("bit32")
 local string = string
 local table = table
 
 local KEY_NOT_FOUND = "KEY_NOT_FOUND"
 local PARSE_ERROR = "PARSE_ERROR"
 
--- local simdjson_parser = simdjson.new()
---
--- local function parse_simdjson(data, key)
--- 	local parsed = simdjson_parser:decode(data)
---
--- 	if not parsed then
--- 		return PARSE_ERROR
--- 	end
--- 	if parsed[key] ~= nil then
--- 		return tostring(parsed[key])
--- 	else
--- 		return KEY_NOT_FOUND
--- 	end
--- end
-
 local function parse_cjson(data, key)
-	-- local str = data:gsub("%z+$", "")
-	-- print(str, key)
 	local parsed, _ = cjson.decode(data)
 	if not parsed then
 		return PARSE_ERROR
@@ -59,7 +40,6 @@ local function main()
 
 	local parsers = {
 		{ "lua_cjson", parse_cjson },
-		--{ "lua_simdjson", parse_simdjson },
 	}
 
 	if parser_number >= #parsers then

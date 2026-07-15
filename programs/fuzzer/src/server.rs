@@ -3,9 +3,10 @@ use crossbeam_channel::{select, unbounded, Receiver, Sender};
 use rusqlite::{params, Connection};
 use std::{
     collections::{BTreeSet, HashSet},
-    fs::{self, create_dir},
+    fs::{self, create_dir, exists, remove_file, OpenOptions},
     net::TcpStream,
     os::unix::net::UnixStream,
+    path::Path,
     thread,
     time::{Duration, Instant},
 };
@@ -48,7 +49,7 @@ impl CombinedStream {
 struct Client {
     handle: thread::JoinHandle<()>,
     name: String,
-    job_tx: Sender<TestCase>,
+    job_tx: Sender<(TestCase, usize)>,
 }
 
 #[derive(Debug)]
@@ -64,8 +65,7 @@ pub struct ParsingResult {
     pub fuzzed: bool,
     pub parser_count: usize,
     pub total_testcase_bytes: usize,
-    // pub fuzzer: Box<dyn Fuzzer>,
-    // pub coverage: HashMap<u32, TestCase>,
+    pub parses_per_second: usize,
 }
 
 fn minimum_parse_time(
@@ -79,7 +79,6 @@ fn minimum_parse_time(
     let key_len = testcase.key.len();
     let header_bytes = 9 + key_len;
     let mut min: f64 = f64::MAX;
-    // let mut times: Vec<f64> = Vec::with_capacity(repeats);
     let mut send_buffer: Box<Vec<u8>> = Box::new(vec![0; json_len + header_bytes + 2]);
     let mut read_buffer: Box<Vec<u8>> = Box::new(vec![0; 64]);
     let mut output = String::new();
@@ -91,7 +90,6 @@ fn minimum_parse_time(
     let mut span = 0;
 
     // Measure parent testcase parsing time accurately
-    // for _ in 0..repeats {
     while span < repeats {
         span += 1;
 
@@ -168,16 +166,11 @@ fn minimum_parse_time(
 }
 
 impl Client {
-    fn new(
-        mut conn: ConnectionInfo,
-        done_tx: Sender<ParsingResult>,
-        args: &Args,
-        id: usize,
-    ) -> Self {
-        let (job_tx, job_rx) = unbounded::<TestCase>();
+    fn new(mut conn: ConnectionInfo, done_tx: Sender<ParsingResult>, id: usize) -> Self {
+        let (job_tx, job_rx) = unbounded::<(TestCase, usize)>();
 
         let mut client_info: [u8; 65] = [0; 65];
-        let no_batching = args.no_batching.clone();
+        // let no_batching = args.no_batching.clone();
 
         // Read client name
         conn.stream
@@ -217,39 +210,48 @@ impl Client {
         let handle = thread::spawn(move || {
             let client_name = name_clone.clone();
             let buffer_size = 1 << 16;
+            // let buffer_size = 1 << 20;
             let mut read_buffer: Box<Vec<u8>> = Box::new(vec![0; buffer_size << 4]);
             let mut send_buffer: Box<Vec<u8>> = Box::new(vec![0; buffer_size]);
             let mut coverage: Vec<bool> = Vec::new();
             let mut first_job = true;
             let mut stopped = false;
 
-            while let Ok(mut testcase) = job_rx.recv() {
+            while let Ok((mut testcase, buffer_size)) = job_rx.recv() {
+                if send_buffer.len() != buffer_size {
+                    read_buffer = Box::new(vec![0; buffer_size << 4]);
+                    send_buffer = Box::new(vec![0; buffer_size]);
+                }
+
                 if testcase.id < 0 {
                     panic!("{} Invalid testcase id: {:?}", client_name, testcase);
                 }
 
-                // Hack - skip testcases that are too large.
-                // They cause an error later down the line
-                if testcase.json.len() >= u16::MAX as usize - 256 {
-                    continue;
-                }
-
-                // Update TUI
-                // conn.tui_tx
-                //     .send(ClientStatus {
-                //         name: client_name.clone(),
-                //         data: Some(TimeData {
-                //             duration: 0.0,
-                //             testcase: testcase.clone(),
-                //             output: "".into(),
-                //         }),
-                //         parses_per_second: 0.0,
-                //     })
-                //     .unwrap();
-
                 let mut times: BTreeSet<TimeData> = BTreeSet::new();
                 let mut new_coverage: Vec<(TestCase, String, Vec<bool>)> = Vec::new();
                 let mut compressed: Vec<(String, Encoder)> = Vec::new();
+
+                // Hack - skip testcases that are too large.
+                // They cause an error later down the line
+                if testcase.json.len() >= u16::MAX as usize - 256 {
+                    done_tx
+                        .send(ParsingResult {
+                            parser_id: id,
+                            parser_name: name_clone.clone(),
+                            testcase: testcase,
+                            times,
+                            coverage: new_coverage,
+                            parent_time: 0.0,
+                            parent_output: "".to_string(),
+                            compressed_bytes: compressed,
+                            fuzzed: false,
+                            parser_count: 0,
+                            total_testcase_bytes: 0,
+                            parses_per_second: 0,
+                        })
+                        .unwrap();
+                    continue;
+                }
 
                 // Give the client some time to initialize and CPU usage to stabilize
                 if first_job {
@@ -272,7 +274,6 @@ impl Client {
                 );
 
                 if query.is_ok() {
-                    // println!("Skipping {}", client_name);
                     done_tx
                         .send(ParsingResult {
                             parser_id: id,
@@ -286,36 +287,25 @@ impl Client {
                             fuzzed: false,
                             parser_count: 0,
                             total_testcase_bytes: 0,
+                            parses_per_second: 0,
                         })
                         .unwrap();
                     continue;
                 }
 
                 let key_len = testcase.key.len();
-                // let json_len = testcase.json.len();
-                // let json_bytes = &testcase.json.bytes().collect::<Vec<u8>>();
                 let header_bytes = 9 + key_len;
                 send_buffer[4] = 0;
                 send_buffer[5..9].copy_from_slice(&(key_len as u32).to_le_bytes());
                 send_buffer[9..9 + key_len]
                     .copy_from_slice(&testcase.key.bytes().collect::<Vec<u8>>());
-                // let mut verify_sent = 0;
 
                 // Seed cases get more repetitions
                 let (parent_output, parent_median) = if testcase.weight == 0.0 {
-                    minimum_parse_time(&mut conn.stream, &testcase, client_flags, 100_000)
+                    minimum_parse_time(&mut conn.stream, &testcase, client_flags, 50_000)
                 } else {
                     minimum_parse_time(&mut conn.stream, &testcase, client_flags, 10_000)
                 };
-
-                // println!(
-                //     "Client {:25} received testcase: {}   {} {}ns  {}",
-                //     client_name,
-                //     testcase.json,
-                //     parent_output,
-                //     parent_median,
-                //     testcase.weight.round()
-                // );
 
                 // Update TUI
                 conn.tui_tx
@@ -355,13 +345,6 @@ impl Client {
                         while write_offset < send_buffer.len() - 2 {
                             match fuzzer.copy_to_slice(&mut send_buffer[write_offset + 2..]) {
                                 Ok(n) => {
-                                    // let testcase_str = send_buffer
-                                    //     [write_offset + 2..write_offset + 2 + n]
-                                    //     .iter()
-                                    //     .map(|c| byte_to_string(*c))
-                                    //     .collect::<Vec<String>>()
-                                    //     .join("");
-                                    // println!("{}", testcase_str);
                                     send_buffer[write_offset..write_offset + 2].copy_from_slice(
                                         &(u16::try_from(n).unwrap()).to_le_bytes(),
                                     );
@@ -374,10 +357,6 @@ impl Client {
 
                             if fuzzer.advance().is_err() {
                                 has_next = false;
-                                break;
-                            }
-
-                            if no_batching {
                                 break;
                             }
                         }
@@ -611,46 +590,11 @@ impl Client {
 
                     let _ = compression_encoder.finish();
                     compressed.push((fuzzer.id(), compression_encoder));
-
-                    // done_tx
-                    //     .send(ParsingResult {
-                    //         client_id: id,
-                    //         client_name: name_clone.clone(),
-                    //         testcase: testcase,
-                    //         fuzzed,
-                    //         times,
-                    //         coverage: new_coverage,
-                    //         compressed_bytes: *compression_encoder.finish(),
-                    //         fuzzer: fuzzer,
-                    //     })
-                    //     .unwrap();
-
-                    //
-                    // println!(
-                    //     "{:25} {} {}\nn: {:10}k, {:7.1}k/s  dur: {}s  zip: {:.1}kb, {:.2}%\n",
-                    //     client_name,
-                    //     testcase.json,
-                    //     fuzzer.id(),
-                    //     compression_encoder.message_count / 1000,
-                    //     (compression_encoder.message_count as f64) / (elapsed.as_millis() as f64),
-                    //     elapsed.as_secs(),
-                    //     compression_encoder.bytes.len() as f64 / 1000.0,
-                    //     compression_encoder.bytes.len() as f64
-                    //         / compression_encoder.uncompressed_bytes as f64
-                    //         * 100.0,
-                    // );
-
-                    // let mut file =
-                    //     fs::File::create(&file_name.as_str()).expect("Could not create file");
-                    // file.write_all(&compression_encoder.bytes)
-                    //     .expect("Could not write to file");
                 }
 
                 if stopped {
                     break;
                 }
-
-                // thread::sleep(Duration::from_secs(2));
 
                 // Update TUI
                 conn.tui_tx
@@ -666,21 +610,26 @@ impl Client {
                     })
                     .unwrap();
 
-                done_tx
-                    .send(ParsingResult {
-                        parser_id: id,
-                        parser_name: name_clone.clone(),
-                        testcase: testcase,
-                        times,
-                        coverage: new_coverage,
-                        parent_time: parent_median,
-                        parent_output,
-                        compressed_bytes: compressed,
-                        fuzzed: true,
-                        parser_count: 0,
-                        total_testcase_bytes,
-                    })
-                    .unwrap();
+                let res = ParsingResult {
+                    parser_id: id,
+                    parser_name: name_clone.clone(),
+                    testcase: testcase,
+                    times,
+                    coverage: new_coverage,
+                    parent_time: parent_median,
+                    parent_output,
+                    compressed_bytes: compressed,
+                    fuzzed: true,
+                    parser_count: 0,
+                    total_testcase_bytes,
+                    parses_per_second: if elapsed == 0.0 {
+                        0
+                    } else {
+                        (total_payloads * 1000_000) / elapsed as usize
+                    },
+                };
+
+                done_tx.send(res).unwrap();
             }
         });
 
@@ -688,7 +637,6 @@ impl Client {
             name: client_name,
             job_tx,
             handle,
-            // done_rx,
         }
     }
 }
@@ -706,18 +654,23 @@ pub struct Orchestrator {
     last_job_time: Vec<Instant>,
     done_tx: Sender<ParsingResult>,
     done_rx: Receiver<ParsingResult>,
-    pub connection_tx: Sender<ConnectionInfo>,
+    // pub connection_tx: Sender<ConnectionInfo>,
     connection_rx: Receiver<ConnectionInfo>,
     pub job_tx: Sender<Job>,
     job_rx: Receiver<Job>,
     result_tx: Sender<ParsingResult>,
     crashed_n: usize,
+    send_buffer_size: usize,
 }
 
 impl Orchestrator {
-    pub fn new(pool_size: usize, result_tx: Sender<ParsingResult>) -> Self {
+    pub fn new(
+        pool_size: usize,
+        send_buffer_size: usize,
+        connection_rx: Receiver<ConnectionInfo>,
+        result_tx: Sender<ParsingResult>,
+    ) -> Self {
         let (done_tx, done_rx) = unbounded();
-        let (connection_tx, connection_rx) = unbounded::<ConnectionInfo>();
         let (job_tx, job_rx) = unbounded();
 
         Orchestrator {
@@ -728,24 +681,23 @@ impl Orchestrator {
             last_job_time: Vec::new(),
             done_tx,
             done_rx,
-            connection_tx,
             connection_rx,
             job_tx,
             job_rx,
             result_tx,
             crashed_n: 0,
+            send_buffer_size,
         }
     }
 
-    pub fn join(&mut self, args: &Args) {
+    pub fn join(&mut self) {
         loop {
             select! {
                 recv(self.connection_rx) -> conn => {
-                    self.create_client(conn.unwrap(), args);
+                    self.create_client(conn.unwrap());
                 },
                 recv(self.job_rx) -> job => {
                     let job = job.unwrap();
-                    // println!("Server received job: {:?} {:?}", job.testcase, job.clients);
 
                     if job.parsers.len() == 0 {
                         self.queue(&job.testcase, None);
@@ -760,7 +712,6 @@ impl Orchestrator {
                     let mut res = res.unwrap();
                     self.active.remove(&res.parser_id);
 
-                    // println!("Server received result: {} {:?}", res.id, res.testcase);
                     if res.fuzzed {
                         res.parser_count = self.clients.len() - self.crashed_n;
                         self.last_job_time[res.parser_id] = Instant::now();
@@ -774,21 +725,149 @@ impl Orchestrator {
         }
     }
 
-    pub fn create_client(&mut self, conn: ConnectionInfo, args: &Args) {
-        self.clients.push(Client::new(
-            conn,
-            self.done_tx.clone(),
-            args,
-            self.clients.len(),
-        ));
+    pub fn measure_timing(&self, args: &Args) {
+        let testcase = TestCase::new(args.measure_testcase.to_string(), "q".to_string(), None);
+        let parser_name = args.measure_timing.clone().unwrap();
+        let mut client_info: [u8; 65] = [0; 65];
 
-        // let seeds = load_testcases();
-        // let mut set = BTreeSet::new();
-        //
-        // for seed in seeds {
-        //     set.insert(seed);
-        // }
+        while let Ok(mut conn) = self.connection_rx.recv() {
+            // Read client name
+            conn.stream
+                .read_exact(&mut client_info)
+                .expect("Could not read client info");
 
+            let mut name_length = 0;
+
+            for i in 0..client_info.len() {
+                if client_info[i] == 0 {
+                    break;
+                }
+
+                name_length = i;
+            }
+
+            let client_name: String = std::str::from_utf8(&client_info[0..name_length + 1])
+                .expect("Could not parse client name")
+                .to_string();
+            let client_flags = client_info[64];
+
+            let mut lines = Vec::new();
+            lines.push("n\tns".to_string());
+
+            let (output, _) = minimum_parse_time(&mut conn.stream, &testcase, client_flags, 1);
+            println!(
+                "Measuring {} timings for test case '{}' with the output '{}'",
+                client_name, testcase.json, output
+            );
+
+            // Warmup
+            for _ in 0..1000 {
+                let (_, _) = minimum_parse_time(&mut conn.stream, &testcase, client_flags, 1);
+            }
+
+            let (repeats, span) = if args.measure_timing_once {
+                (1, 1000_000)
+            } else {
+                (500_000, 1)
+            };
+
+            for i in 0..repeats {
+                let mut tot = 0.0;
+                let repeat_avg = 1;
+
+                for _ in 0..repeat_avg {
+                    let (_, ns) =
+                        minimum_parse_time(&mut conn.stream, &testcase, client_flags, span);
+                    tot += ns;
+                }
+
+                tot /= repeat_avg as f64;
+                if args.measure_timing_once {
+                    println!(
+                        "{}: {} -> {} in {}ns",
+                        client_name, testcase.json, output, tot as u32
+                    );
+                } else {
+                    lines.push(format!("{}\t{}", i, tot as u32));
+                }
+            }
+
+            if !args.measure_timing_once {
+                let file_name = Path::new("analyzed").join(format!("{}_timings.csv", client_name));
+                if exists(&file_name).unwrap() {
+                    remove_file(&file_name).unwrap();
+                }
+
+                let mut options = OpenOptions::new()
+                    .create(true)
+                    .write(true)
+                    .open(file_name)
+                    .unwrap();
+                options.write_all(lines.join("\n").as_bytes()).unwrap();
+            }
+
+            println!("Done measuring {} timings", parser_name);
+            // break;
+        }
+    }
+
+    pub fn measure_batching(&self, args: &Args) {
+        let mut testcase = TestCase::new(args.measure_testcase.to_string(), "q".to_string(), None);
+        testcase.id = isize::MAX;
+        testcase.weight = 1.0;
+        println!("Measuring how different batch sizes affect fuzzing performance");
+
+        while let Ok(conn) = self.connection_rx.recv() {
+            let client = Client::new(conn, self.done_tx.clone(), self.clients.len());
+
+            if client.name != "rust_serde" {
+                continue;
+            }
+
+            println!("Client connected");
+            let padding = 20;
+
+            for buffer_size in [
+                testcase.json.len() + padding,
+                1 << 7,
+                1 << 8,
+                1 << 9,
+                1 << 10,
+                1 << 11,
+                1 << 12,
+                1 << 13,
+                1 << 14,
+                1 << 15,
+                1 << 16,
+                1 << 17,
+                1 << 18,
+                1 << 19,
+                1 << 20,
+                100,
+                1000,
+                10_000,
+                100_000,
+                1_000_000,
+            ] {
+                client.job_tx.send((testcase.clone(), buffer_size)).unwrap();
+
+                if let Ok(res) = self.done_rx.recv() {
+                    println!(
+                        "    {}: parsed '{}'  {}r/s  {}, {} in batch",
+                        client.name,
+                        testcase.json,
+                        res.parses_per_second,
+                        buffer_size,
+                        buffer_size / (testcase.json.len() + padding)
+                    );
+                }
+            }
+        }
+    }
+
+    pub fn create_client(&mut self, conn: ConnectionInfo) {
+        self.clients
+            .push(Client::new(conn, self.done_tx.clone(), self.clients.len()));
         self.task_queue.push(BTreeSet::new());
         self.last_job_time.push(Instant::now());
         self.try_pop_queue();
@@ -816,25 +895,12 @@ impl Orchestrator {
     }
 
     fn try_pop_queue(&mut self) {
-        // println!(
-        //     "{:?}",
-        //     self.task_queue
-        //         .iter()
-        //         .map(|e| e.len())
-        //         .collect::<Vec<usize>>()
-        // );
-
         if self.active.len() >= self.pool_size {
             return;
         }
 
         // Find task with lowest weight
         let mut min_i: Option<usize> = None;
-
-        // self.round_robin_i = i + 1;
-        // while self.active.contains(&self.round_robin_i) {
-        //     self.round_robin_i += 1;
-        // }
 
         let mut indices = self
             .last_job_time
@@ -854,15 +920,6 @@ impl Orchestrator {
         }
 
         for (i, _) in &indices {
-            // let i = (i + self.round_robin_i) % self.clients.len();
-
-            // println!(
-            //     "{} {} {:?}",
-            //     i,
-            //     self.active.contains(&i),
-            //     self.task_queue[i].first()
-            // );
-
             if self.active.contains(&i) {
                 continue;
             }
@@ -880,22 +937,14 @@ impl Orchestrator {
         }
 
         if let Some(i) = min_i {
-            // for (i, t) in &indices {
-            //     println!(
-            //         "{} {} {}s ",
-            //         i,
-            //         self.clients[*i].name,
-            //         t.elapsed().as_secs()
-            //     );
-            // }
-            // println!("best: {} {:?}\n", i, self.task_queue[i].first());
-            // println!();
-
             let testcase = self.task_queue[i].pop_first().unwrap();
 
             if !self.clients[i].handle.is_finished() {
                 self.active.insert(i);
-                self.clients[i].job_tx.send(testcase).unwrap();
+                self.clients[i]
+                    .job_tx
+                    .send((testcase, self.send_buffer_size))
+                    .unwrap();
             }
         }
     }

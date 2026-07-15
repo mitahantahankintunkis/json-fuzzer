@@ -14,8 +14,6 @@ import (
 	"github.com/buger/jsonparser"
 	"github.com/francoispqt/gojay"
 	"github.com/json-iterator/go"
-	// "github.com/minio/simdjson-go"
-	// "github.com/ohler55/ojg/oj"
 	"github.com/sugawarayuuta/sonnet"
 	"github.com/tidwall/gjson"
 	"github.com/valyala/fastjson"

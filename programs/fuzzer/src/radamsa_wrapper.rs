@@ -15,14 +15,21 @@ pub struct Radamsa {
 impl Radamsa {
     pub fn new(test_case: &TestCase) -> Result<Self, ()> {
         let n = 100;
-        let seed: usize = 905391675;
+
+        // djb2 hashing algorithm
+        let mut seed: u32 = 5381;
+
+        for byte in test_case.json.bytes() {
+            seed = ((seed << 5) + seed) + byte as u32;
+        }
+
         let json = match String::from_utf8(decode_str(&test_case.json)) {
             Ok(j) => j,
             Err(_) => return Err(()),
         };
 
         Ok(Radamsa {
-            seed,
+            seed: seed as usize,
             json,
             n,
             i: 0,
@@ -55,19 +62,12 @@ impl Fuzzer for Radamsa {
             Ok(c) => c,
             Err(_) => return Ok(0),
         };
-        // .expect(&format!("Could not execute radamsa {}", self.json));
 
         let test_case =
             &cmd.stdout[0..std::cmp::min((1 << 15) - 1, cmd.stdout.len())].trim_ascii_end();
 
-        // eprintln!(
-        //     "radamsa: {:?}",
-        //     String::from_utf8_lossy(test_case).to_string()
-        // );
-
         if test_case.len() > buf.len() {
             return Err(());
-            // panic!("Radamsa too large");
         }
 
         for (i, b) in test_case.iter().enumerate() {
@@ -79,5 +79,29 @@ impl Fuzzer for Radamsa {
 
     fn id(&self) -> String {
         "radamsa".to_string()
+    }
+}
+
+// 3.3s in total
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 0.29s
+    #[test]
+    fn performance1() {
+        let testcase = TestCase::new(r#"{"q":2,"q":3}"#.into(), "q".into(), None);
+        let mut fuzzer = Radamsa::new(&testcase).unwrap();
+        let mut buf = vec![0u8; 1 << 16];
+
+        fuzzer.n = 10000;
+        let n = fuzzer.copy_to_slice(&mut buf).unwrap();
+        let mut bytes = n;
+
+        while fuzzer.advance().is_ok() {
+            let n = fuzzer.copy_to_slice(&mut buf).unwrap();
+            bytes += n;
+        }
+        panic!("{}", bytes);
     }
 }

@@ -19,19 +19,10 @@ pub struct Config {
     pub payloads: Vec<PayloadConfig>,
 }
 
-// Serde functions for defaults
-// fn q() -> String {
-//     "q".to_string()
-// }
-
 #[derive(Deserialize, Clone, Debug)]
 pub struct PayloadConfig {
     pub name: String,
     pub json: String,
-    // #[serde(default)]
-    // pub datatype: Datatype,
-    // #[serde(default = "q")]
-    // pub key: String,
     #[serde(default)]
     pub fuzz: Vec<FuzzConfig>,
 }
@@ -118,7 +109,7 @@ impl FuzzMap {
 }
 
 #[derive(Debug)]
-pub struct ComprehensiveFuzzer {
+pub struct OKFuzz {
     pub byte_count: usize,
     pub bytes: Vec<u8>,
     pub config: PayloadConfig,
@@ -129,13 +120,11 @@ pub struct ComprehensiveFuzzer {
     id: String,
 }
 
-impl ComprehensiveFuzzer {
+impl OKFuzz {
     pub fn insert_single(test_case: &TestCase) -> Self {
         PayloadConfig {
             name: "insert_single".to_string(),
             json: test_case.json.clone(),
-            // datatype: Datatype::Int,
-            // key: test_case.key.clone(),
             fuzz: vec![FuzzConfig::default()],
         }
         .into()
@@ -145,8 +134,6 @@ impl ComprehensiveFuzzer {
         let mut ret = PayloadConfig {
             name: "insert_two".to_string(),
             json: test_case.json.clone(),
-            // datatype: Datatype::Int,
-            // key: test_case.key.clone(),
             fuzz: vec![FuzzConfig::default(), FuzzConfig::default()],
         };
 
@@ -174,8 +161,6 @@ impl ComprehensiveFuzzer {
         let mut ret = PayloadConfig {
             name: "remove_two".to_string(),
             json: test_case.json.clone(),
-            // datatype: Datatype::Int,
-            // key: test_case.key.clone(),
             fuzz: vec![FuzzConfig::default(), FuzzConfig::default()],
         };
 
@@ -191,8 +176,6 @@ impl ComprehensiveFuzzer {
         let mut ret = PayloadConfig {
             name: "insert_unicode".to_string(),
             json: test_case.json.clone(),
-            // datatype: Datatype::Int,
-            // key: test_case.key.clone(),
             fuzz: vec![FuzzConfig::default()],
         };
 
@@ -209,8 +192,6 @@ impl ComprehensiveFuzzer {
         let mut ret = PayloadConfig {
             name: "replace_unicode".to_string(),
             json: test_case.json.clone(),
-            // datatype: Datatype::Int,
-            // key: test_case.key.clone(),
             fuzz: vec![FuzzConfig::default()],
         };
 
@@ -228,8 +209,6 @@ impl ComprehensiveFuzzer {
         let mut ret = PayloadConfig {
             name: "insert_single_word".to_string(),
             json: test_case.json.clone(),
-            // datatype: Datatype::Int,
-            // key: test_case.key.clone(),
             fuzz: vec![FuzzConfig::default()],
         };
 
@@ -242,8 +221,6 @@ impl ComprehensiveFuzzer {
         let mut ret = PayloadConfig {
             name: "replace_single_word".to_string(),
             json: test_case.json.clone(),
-            // datatype: Datatype::Int,
-            // key: test_case.key.clone(),
             fuzz: vec![FuzzConfig::default()],
         };
 
@@ -257,8 +234,6 @@ impl ComprehensiveFuzzer {
         let mut ret = PayloadConfig {
             name: "insert_grammar".to_string(),
             json: test_case.json.clone(),
-            // datatype: Datatype::Int,
-            // key: test_case.key.clone(),
             fuzz: vec![FuzzConfig::default(), FuzzConfig::default()],
         };
 
@@ -272,8 +247,6 @@ impl ComprehensiveFuzzer {
         });
         ret.fuzz[0].id = Some("0".into());
         ret.fuzz[1].right_of = Some("0".into());
-
-        // ret.fuzz[0].remove_after = 1;
 
         ret.into()
     }
@@ -291,7 +264,7 @@ impl ComprehensiveFuzzer {
         self.sorted_fuzz_lookup = (0..self.fuzz.len()).collect::<Vec<usize>>();
         self.inverse_sorted_fuzz_lookup = (0..self.fuzz.len()).collect::<Vec<usize>>();
 
-        fn rec(payload: &mut ComprehensiveFuzzer, fuzz_i: usize) -> (bool, usize) {
+        fn rec(payload: &mut OKFuzz, fuzz_i: usize) -> (bool, usize) {
             payload.fuzz[fuzz_i].index = payload.fuzz[fuzz_i].indices.start;
             payload.sort();
 
@@ -311,7 +284,6 @@ impl ComprehensiveFuzzer {
                 }
 
                 if payload.fully_valid() {
-                    // return true;
                     return (true, total_permutations);
                 }
 
@@ -428,7 +400,6 @@ impl ComprehensiveFuzzer {
             }
 
             self.fuzz[fuzz_i].index += 1;
-            // self.sort();
 
             if self.valid(fuzz_i) {
                 return Ok(());
@@ -455,7 +426,7 @@ impl ComprehensiveFuzzer {
     }
 }
 
-impl Fuzzer for ComprehensiveFuzzer {
+impl Fuzzer for OKFuzz {
     fn advance(&mut self) -> Result<(), ()> {
         if self.finished {
             return Err(());
@@ -526,13 +497,9 @@ impl Fuzzer for ComprehensiveFuzzer {
             return Err(());
         }
 
-        // unsafe {
-        // let mut buf_ptr = buf.as_mut_ptr();
-        // let mut src_ptr = self.bytes.as_ptr();
         let mut byte_i = 0;
         let mut i = 0;
 
-        // for fuzz in self.fuzz.iter().rev() {
         for fuzz_i in (0..self.fuzz.len()).rev() {
             let fuzz_i = self.sorted_fuzz_lookup[fuzz_i];
             let fuzz = &self.fuzz[fuzz_i];
@@ -593,7 +560,7 @@ impl Fuzzer for ComprehensiveFuzzer {
     }
 }
 
-impl From<PayloadConfig> for ComprehensiveFuzzer {
+impl From<PayloadConfig> for OKFuzz {
     fn from(config: PayloadConfig) -> Self {
         let fuzzed_payload: Vec<u8> = decode_str(&config.json);
         let mut fuzz_configs: Vec<FuzzConfig> = Vec::new();
@@ -775,7 +742,7 @@ impl From<PayloadConfig> for ComprehensiveFuzzer {
 
         let sorted_fuzz = (0..fuzzes.len()).collect::<Vec<usize>>();
 
-        let mut ret = ComprehensiveFuzzer {
+        let mut ret = OKFuzz {
             byte_count: byte_count
                 .try_into()
                 .expect("Invalid total byte count in payload"),
@@ -980,7 +947,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut payload: ComprehensiveFuzzer = config.payloads[0].clone().into();
+        let mut payload: OKFuzz = config.payloads[0].clone().into();
         println!("{:?}", payload.config);
         let mut result = [0u8; 4];
 
@@ -1034,7 +1001,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut payload: ComprehensiveFuzzer = config.payloads[0].clone().into();
+        let mut payload: OKFuzz = config.payloads[0].clone().into();
         println!("{:?}", payload.config);
         let mut result = [0u8; 16];
 
@@ -1089,7 +1056,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut payload: ComprehensiveFuzzer = config.payloads[0].clone().into();
+        let mut payload: OKFuzz = config.payloads[0].clone().into();
         println!("{:?}", payload.config);
         let mut result = [0u8; 15];
 
@@ -1125,7 +1092,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut payload: ComprehensiveFuzzer = config.payloads[0].clone().into();
+        let mut payload: OKFuzz = config.payloads[0].clone().into();
         let mut bytes: Vec<u8> = payload.config.json.bytes().collect();
         let mut byte = 0u8;
 
@@ -1159,7 +1126,7 @@ mod tests {
         )
         .unwrap();
         let mut buffer: Vec<u8> = [vec![0], config.payloads[0].json.as_bytes().to_vec()].concat();
-        let mut payload: ComprehensiveFuzzer = config.payloads[0].clone().into();
+        let mut payload: OKFuzz = config.payloads[0].clone().into();
 
         println!("{:#?}", config);
         println!("{:#?}", payload);
@@ -1207,7 +1174,7 @@ mod tests {
         .unwrap();
 
         let original_buffer: Vec<u8> = config.payloads[0].json.as_bytes().to_vec();
-        let mut payload: ComprehensiveFuzzer = config.payloads[0].clone().into();
+        let mut payload: OKFuzz = config.payloads[0].clone().into();
 
         println!("{:#?}", payload);
 
@@ -1276,7 +1243,7 @@ mod tests {
         .unwrap();
 
         let original_buffer: Vec<u8> = config.payloads[0].json.as_bytes().to_vec();
-        let mut payload: ComprehensiveFuzzer = config.payloads[0].clone().into();
+        let mut payload: OKFuzz = config.payloads[0].clone().into();
 
         println!("{:#?}", payload);
 
@@ -1369,7 +1336,7 @@ mod tests {
         .unwrap();
 
         let original_buffer: Vec<u8> = config.payloads[0].json.as_bytes().to_vec();
-        let mut payload: ComprehensiveFuzzer = config.payloads[0].clone().into();
+        let mut payload: OKFuzz = config.payloads[0].clone().into();
 
         println!("{:#?}", payload);
 
@@ -1439,7 +1406,7 @@ mod tests {
         .unwrap();
 
         let original_buffer: Vec<u8> = config.payloads[0].json.as_bytes().to_vec();
-        let mut payload: ComprehensiveFuzzer = config.payloads[0].clone().into();
+        let mut payload: OKFuzz = config.payloads[0].clone().into();
 
         println!("{:#?}", payload);
 
@@ -1522,7 +1489,7 @@ mod tests {
         .unwrap();
 
         let buffer: Vec<u8> = config.payloads[0].json.as_bytes().to_vec();
-        let mut payload: ComprehensiveFuzzer = config.payloads[0].clone().into();
+        let mut payload: OKFuzz = config.payloads[0].clone().into();
 
         println!("{:#?}", payload);
 
@@ -1590,7 +1557,7 @@ mod tests {
         )
         .unwrap();
         let buffer: Vec<u8> = config.payloads[0].json.as_bytes().to_vec();
-        let mut payload: ComprehensiveFuzzer = config.payloads[0].clone().into();
+        let mut payload: OKFuzz = config.payloads[0].clone().into();
         let i = 6;
 
         println!("{:#?}", payload);
@@ -1639,7 +1606,7 @@ mod tests {
         )
         .unwrap();
         let buffer: Vec<u8> = config.payloads[0].json.as_bytes().to_vec();
-        let mut payload: ComprehensiveFuzzer = config.payloads[0].clone().into();
+        let mut payload: OKFuzz = config.payloads[0].clone().into();
 
         for i in 0..buffer.len() + 1 {
             for byte in 0..=(u16::MAX as u32) {
@@ -1690,7 +1657,7 @@ mod tests {
         .unwrap();
 
         let mut buffer: Vec<u8> = config.payloads[0].json.as_bytes().to_vec();
-        let mut payload: ComprehensiveFuzzer = config.payloads[0].clone().into();
+        let mut payload: OKFuzz = config.payloads[0].clone().into();
 
         let mut byte0_i = 0;
 
@@ -1758,7 +1725,7 @@ mod tests {
         .unwrap();
 
         let mut buffer: Vec<u8> = config.payloads[0].json.as_bytes().to_vec();
-        let mut payload: ComprehensiveFuzzer = config.payloads[0].clone().into();
+        let mut payload: OKFuzz = config.payloads[0].clone().into();
 
         println!("{:#?}", payload);
 
@@ -1830,7 +1797,7 @@ mod tests {
         .unwrap();
 
         let mut buffer: Vec<u8> = config.payloads[0].json.as_bytes().to_vec();
-        let mut payload: ComprehensiveFuzzer = config.payloads[0].clone().into();
+        let mut payload: OKFuzz = config.payloads[0].clone().into();
 
         println!("{:#?}", payload.fuzz);
 
@@ -1908,7 +1875,7 @@ mod tests {
 
         let mut buffer: Vec<u8> = config.payloads[0].json.as_bytes().to_vec();
         let original_buffer: Vec<u8> = config.payloads[0].json.as_bytes().to_vec();
-        let mut payload: ComprehensiveFuzzer = config.payloads[0].clone().into();
+        let mut payload: OKFuzz = config.payloads[0].clone().into();
 
         println!("{:#?}", payload.fuzz);
 

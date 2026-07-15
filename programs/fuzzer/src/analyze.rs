@@ -1,4 +1,3 @@
-// #![allow(unused)]
 use crossbeam_channel::unbounded;
 use crossbeam_channel::Receiver;
 use crossbeam_channel::Sender;
@@ -8,13 +7,13 @@ use rusqlite::MAIN_DB;
 
 use crate::compression::Decoder;
 use crate::compression::DecoderState;
-// use crate::compression::*;
 use crate::fuzz::*;
 use crate::server::Job;
 use crate::server::ParsingResult;
 use crate::util::byte_to_string;
 use crate::util::decode_str;
 use crate::util::unixtime;
+use crate::Args;
 use std::cmp::max;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -79,10 +78,6 @@ fn vuln_hash(
     for byte in testcase.json.bytes() {
         hash = ((hash << 5) + hash) + byte as u32;
     }
-
-    // for byte in fuzzer_name.bytes() {
-    //     hash = ((hash << 5) + hash) + byte as u32;
-    // }
 
     hash
 }
@@ -202,10 +197,11 @@ pub struct Analyzer {
     output_hashes: HashSet<u64>,
     error_lookup: Vec<u8>,
     analyzed: Vec<isize>,
+    args: Args,
 }
 
 impl Analyzer {
-    pub fn new(res_rx: Receiver<ParsingResult>, job_tx: Sender<Job>) -> Self {
+    pub fn new(args: Args, res_rx: Receiver<ParsingResult>, job_tx: Sender<Job>) -> Self {
         let db_conn = Connection::open("analyzed/db.sqlite").expect("Could not open DB");
         let (dos_tx, dos_rx) = unbounded::<DosInfo>();
         let (discrepancy_tx, discrepancy_rx) = unbounded::<Discrepancy>();
@@ -229,6 +225,7 @@ impl Analyzer {
             output_hashes: HashSet::new(),
             error_lookup: Vec::new(),
             analyzed: Vec::new(),
+            args,
         };
 
         res.init_db();
@@ -272,19 +269,22 @@ impl Analyzer {
             && &res.parent_output != "PARSE_ERROR"
             && &res.parent_output != "KEY_NOT_FOUND"
         {
-            let package_size = 1000_000.0;
-            let first_l = decode_str(&path[0].0.json).len();
+            let package_size = self.args.dos_testcase_array_size as f64;
+            let first_l = decode_str(&path[path.len() - 2].0.json).len();
             let last_l = decode_str(&path[path.len() - 1].0.json).len();
-            let first_t = path[0].1;
+            let first_t = path[path.len() - 2].1;
             let last_t = path[path.len() - 1].1;
 
             // Add one for a comma
-            let l = (last_l - first_l + 1) as f64;
-            let t = last_t - first_t;
+            // let l = (last_l - first_l + 1) as f64;
+            // let t = last_t - first_t;
+            let l = last_l as f64;
+            let t = last_t;
 
             if l > 0.0 && t > 0.0 {
-                let repeats = package_size / l;
-                let secs = repeats * t / 1000_000_000.0;
+                let secs = (package_size * t) / (l + 1.0);
+                // let repeats = package_size / l;
+                // let secs = repeats * t / (package_size * 1000.0);
 
                 if secs >= 0.5 {
                     self.db_conn
@@ -364,6 +364,38 @@ impl Analyzer {
                 }
             }
         }
+
+        // if path.len() > 0 {
+        //     let parent = &path[path.len() - 1];
+        //
+        //     for (_i, timedata) in res.times.iter().enumerate() {
+        //         if timedata.output == "PARSE_ERROR" || timedata.output == "KEY_NOT_FOUND" {
+        //             continue;
+        //         }
+        //
+        //         let r = (timedata.duration / parent.1)
+        //             / (max(
+        //                 timedata.testcase.json.len() as i32 - parent.0.json.len() as i32,
+        //                 1,
+        //             )) as f64;
+        //
+        //         if r >= self.args.dos_ratio_treshold {
+        //             let mut testcase = TestCase::new(
+        //                 timedata.testcase.json.clone(),
+        //                 timedata.testcase.key.clone(),
+        //                 Some(res.testcase.clone()),
+        //             );
+        //
+        //             let len_diff = max(timedata.testcase.json.len() - res.testcase.json.len(), 1);
+        //             testcase.weight = self.args.gamma + 1.0 / r / (len_diff as f64);
+        //
+        //             jobs.push(Job {
+        //                 testcase: testcase.clone(),
+        //                 parsers: vec![res.parser_name.clone()],
+        //             });
+        //         }
+        //     }
+        // }
     }
 
     fn confupdate_dos(
@@ -372,18 +404,10 @@ impl Analyzer {
         jobs: &mut Vec<Job>,
         path: &Vec<(TestCase, f64)>,
     ) {
-        // let mut n = 1;
-
         if path.len() > 0 {
-            // let mut max_r = 0.0;
-            // let mut max_testcase: Option<&TestCase> = None;
-            let p = &path[path.len() - 1];
+            let parent = &path[path.len() - 1];
 
             for (_i, timedata) in res.times.iter().enumerate() {
-                // if timedata.fuzzer_name == "radamsa" {
-                //     continue;
-                // }
-
                 if timedata.output == "PARSE_ERROR" || timedata.output == "KEY_NOT_FOUND" {
                     continue;
                 }
@@ -396,13 +420,13 @@ impl Analyzer {
                     continue;
                 }
 
-                let r = (timedata.duration / p.1)
+                let r = (timedata.duration / parent.1)
                     / (max(
-                        timedata.testcase.json.len() as i32 - p.0.json.len() as i32,
+                        timedata.testcase.json.len() as i32 - parent.0.json.len() as i32,
                         1,
                     )) as f64;
 
-                if r >= 2.0 {
+                if r >= self.args.dos_ratio_treshold {
                     let mut testcase = TestCase::new(
                         timedata.testcase.json.clone(),
                         timedata.testcase.key.clone(),
@@ -410,7 +434,7 @@ impl Analyzer {
                     );
 
                     let len_diff = max(timedata.testcase.json.len() - res.testcase.json.len(), 1);
-                    testcase.weight = 3.0 + 1.0 / r / (len_diff as f64);
+                    testcase.weight = self.args.gamma + 1.0 / r / (len_diff as f64);
 
                     jobs.push(Job {
                         testcase: testcase.clone(),
@@ -419,96 +443,6 @@ impl Analyzer {
                 }
             }
         }
-        // else if path.len() > 1 {
-        //     // Testcase with the highest ratio
-        //     while n > 0 {
-        //         // while let Some(last) = res.times.pop_last() {
-        //         let mut max_avg = 0.0;
-        //         let mut max_testcase: Option<&TestCase> = None;
-        //         let p0 = &path[path.len() - 1];
-        //         let p1 = &path[path.len() - 2];
-        //         let r0 = (p0.1 / p1.1)
-        //             / (max(p0.0.json.len() as i32 - p1.0.json.len() as i32, 1)) as f64;
-        //
-        //         for (_i, timedata) in res.times.iter().enumerate() {
-        //             if timedata.fuzzer_name == "radamsa" {
-        //                 continue;
-        //             }
-        //
-        //             if timedata.output == "PARSE_ERROR" || timedata.output == "KEY_NOT_FOUND" {
-        //                 continue;
-        //             }
-        //
-        //             if jobs
-        //                 .iter()
-        //                 .find(|j| j.testcase == timedata.testcase)
-        //                 .is_some()
-        //             {
-        //                 continue;
-        //             }
-        //
-        //             let r1 = (timedata.duration / p0.1)
-        //                 / (max(
-        //                     timedata.testcase.json.len() as i32 - p0.0.json.len() as i32,
-        //                     1,
-        //                 )) as f64;
-        //             let avg = (r0 + r1) * 0.5;
-        //
-        //             if max_avg < avg {
-        //                 max_avg = avg;
-        //                 max_testcase = Some(&timedata.testcase);
-        //             }
-        //         }
-        //
-        //         if let Some(testcase) = max_testcase {
-        //             if max_avg > 1.0 {
-        //                 let mut testcase = TestCase::new(
-        //                     testcase.json.clone(),
-        //                     testcase.key.clone(),
-        //                     Some(res.testcase.clone()),
-        //                 );
-        //
-        //                 testcase.weight = 2.0 + 10.0 / max_avg / testcase.depth as f64;
-        //
-        //                 jobs.push(Job {
-        //                     testcase: testcase.clone(),
-        //                     parsers: vec![res.parser_name.clone()],
-        //                 });
-        //
-        //                 n -= 1;
-        //                 continue;
-        //             }
-        //         }
-        //
-        //         break;
-        //     }
-        // } else {
-        //     // Testcase with the slowest parsing time
-        //     while let Some(last) = res.times.pop_last() {
-        //         if last.output == "PARSE_ERROR" || last.output == "KEY_NOT_FOUND" {
-        //             continue;
-        //         }
-        //
-        //         if jobs.iter().find(|j| j.testcase == last.testcase).is_some() {
-        //             continue;
-        //         }
-        //
-        //         if n <= 0 {
-        //             break;
-        //         }
-        //         n -= 1;
-        //
-        //         let mut testcase = last.testcase.clone();
-        //         testcase.weight = 2.0 + 10_000.0 / (last.duration as f64);
-        //
-        //         if last.duration > 0.0 && testcase.depth < 10 {
-        //             jobs.push(Job {
-        //                 testcase: testcase,
-        //                 parsers: vec![res.parser_name.clone()],
-        //             });
-        //         }
-        //     }
-        // }
     }
 
     fn confupdate_coverage(&mut self, res: &mut ParsingResult, jobs: &mut Vec<Job>) {
@@ -536,13 +470,6 @@ impl Analyzer {
                     coverage.resize(new_coverage.len(), false);
                 }
 
-                // let mut n = 0;
-                // for i in 0..coverage.len() {
-                //     if coverage[i] {
-                //         n += 1;
-                //     }
-                // }
-
                 for (i, b) in new_coverage.iter().enumerate() {
                     if *b && !coverage[i] {
                         coverage[i] = true;
@@ -559,13 +486,6 @@ impl Analyzer {
                             continue;
                         }
 
-                        // eprintln!(
-                        //     "New job (coverage): {} {} {} {:.1}%",
-                        //     res.parser_name,
-                        //     testcase.json,
-                        //     output,
-                        //     (n as f64 / (coverage.len() as f64)) * 100.0,
-                        // );
                         self.new_coverage_testcases.insert(hash);
 
                         let mut testcase = TestCase::new(
@@ -574,7 +494,7 @@ impl Analyzer {
                             Some(res.testcase.clone()),
                         );
 
-                        testcase.weight = 1.0;
+                        testcase.weight = self.args.alpha;
 
                         jobs.push(Job {
                             testcase: testcase.clone(),
@@ -635,7 +555,6 @@ impl Analyzer {
         }
 
         let mut discrepancies: Vec<Discrepancy> = Vec::new();
-        // let mut total_bytes = 0;
 
         for fuzzer in &mut create_fuzzers(&res.testcase) {
             let fuzzer_name = fuzzer.id();
@@ -660,12 +579,6 @@ impl Analyzer {
 
             // Only analyze output discrepancies if every parser has parsed the test case
             if output_ids.len() < res.parser_count {
-                // eprintln!(
-                //     "Outputs: {}  expected: {}    json: {}",
-                //     output_ids.len(),
-                //     res.parser_count,
-                //     res.testcase.json
-                // );
                 return;
             }
 
@@ -695,7 +608,6 @@ impl Analyzer {
 
             results.sort_by(|a, b| a.parser_name.cmp(&b.parser_name));
 
-            // let mut vulnerabilities: Vec<(u32, Discrepancy)> = Vec::new();
             let mut payload_str = String::with_capacity(64);
             let mut parser_outputs: Vec<String> = Vec::with_capacity(results.len());
 
@@ -852,21 +764,13 @@ impl Analyzer {
                         }
                     }
 
-                    // eprintln!("New job (hash): {} {}", payload_str, hash);
-                    //
-                    // eprintln!("{:26} {}", "Parser", "Output");
-                    // for (i, result) in results.iter().enumerate() {
-                    //     eprintln!("{:25}: {}", result.parser_name, parser_outputs[i]);
-                    // }
-                    // eprintln!("");
-
                     let mut testcase = TestCase::new(
                         payload_str.clone(),
                         res.testcase.key.clone(),
                         Some(res.testcase.clone()),
                     );
 
-                    testcase.weight = 2.0;
+                    testcase.weight = self.args.beta;
 
                     jobs.push(Job {
                         testcase: testcase,
@@ -916,14 +820,6 @@ impl Analyzer {
                             equal = true;
                         }
 
-                        // if (i_err || j_err) && self.error_lookup[k] == 0b11 {
-                        //     equal = true;
-                        // }
-
-                        // if output1 == &"PARSE_ERROR" || output1 == &"KEY_NOT_FOUND" {
-                        //     continue;
-                        // }
-
                         let trivial_cases = ["", "0", "1", "null", "{}", "[]"];
                         if !equal
                             && (trivial_cases.contains(&output0.as_ref())
@@ -943,11 +839,8 @@ impl Analyzer {
                                 && output0.starts_with("\"")
                                 && output0.ends_with("\"")
                                 && output0[1..output0.len() - 1] == output1[..])
-                        // && (output0 == &format!("\"{}\"", output1)
-                        //     || &format!("\"{}\"", output0) == output1)
                         {
                             equal = true;
-                            // continue;
                         }
 
                         // Avoid parsing outputs for a simple case
@@ -1019,10 +912,6 @@ impl Analyzer {
                             self.error_lookup[k] |= 0b10;
                         }
 
-                        // if (i_err && !j_err) || (!i_err && j_err) {
-                        //     self.error_lookup[k] = true;
-                        // }
-
                         if should_save {
                             if payload_str.len() == 0 {
                                 let n = fuzzer.copy_to_slice(&mut fuzzed).unwrap();
@@ -1038,9 +927,7 @@ impl Analyzer {
                             );
 
                             let hash = vuln_hash(&name0, &name1, output0, output1, &testcase);
-                            if !discrepancy_hashes.contains(&hash)
-                            // if !discrepancy_hashes.contains(&hash) && consecutive_discrepancies[k] == 0
-                            {
+                            if !discrepancy_hashes.contains(&hash) {
                                 discrepancy_hashes.insert(hash);
 
                                 let discrepancy = Discrepancy::new(
@@ -1067,11 +954,6 @@ impl Analyzer {
 
             // total_bytes += fuzzer_total_bytes;
         }
-
-        // eprintln!(
-        //     "Analyzed {} megabytes of parsing results",
-        //     total_bytes / 1000_000
-        // );
 
         discrepancies.sort_by_key(|v| {
             (
@@ -1112,20 +994,13 @@ impl Analyzer {
                     &vuln.parser_1_output,
                     &path
                         .get(0)
-                        // .get(path.len() - 1)
                         .unwrap_or(&(TestCase::new("<?>".into(), "".into(), None), 0.0))
                         .0
                         .json,
-                    // &path[path.len() - 1].0.json,
                     &vuln.fuzzer_name,
                     unixtime(),
                 ])
                 .expect(&format!("Could not insert into results {:?}", vuln));
-
-                // self.vuln_mat
-                //     .insert((vuln.parser_0_name.clone(), vuln.parser_1_name.clone()));
-                // self.vuln_mat
-                //     .insert((vuln.parser_1_name.clone(), vuln.parser_0_name.clone()));
 
                 let key = (vuln.parser_0_name.clone(), vuln.parser_1_name.clone());
                 let count = *tui_sent.get(&key).unwrap_or(&0);
@@ -1385,48 +1260,6 @@ impl Analyzer {
             let (hash, _timestamp) = h.unwrap();
             self.output_hashes.insert(hash);
         }
-
-        // DoS
-        //         let mut stmt = self
-        //             .db_conn
-        //             .prepare("SELECT parser, parsing_time, ns_per_ch, ratio,  FROM dos
-        //
-        //                         parser TEXT NOT NULL,
-        //                         parsing_time REAL NOT NULL,
-        //                         ns_per_ch REAL NOT NULL,
-        //                         ratio REAL NOT NULL,
-        //                         testcase INTEGER NOT NULL,
-        // INNER JOIN corpus ON corpus.id = dos.testcase")
-        //             .expect("Error while preparing dos");
-        //         let dos_iter = stmt
-        //             .query_map([], |row| {
-        //                 let ret: (String, f64, f64, f64, Vec<u8>) = (row.get(0)?, row.get(1)?);
-        //                 Ok(ret)
-        //             })
-        //             .unwrap();
-        //
-        //                     self.db_conn
-        //                         .execute(
-        //                             "INSERT INTO dos VALUES (?1, ?2, ?3, ?4, ?5)",
-        //                             params!(
-        //                                 res.parser_name.clone(),
-        //                                 res.parent_time,
-        //                                 t / l,
-        //                                 path[0].1 / path[1].1,
-        //                                 res.testcase.id,
-        //                             ),
-        //                         )
-        //                         .expect("Could not insert DoS to DB");
-        //
-        //                     self.dos_tx
-        //                         .send(DosInfo {
-        //                             parser: res.parser_name.clone(),
-        //                             parsing_time: res.parent_time,
-        //                             ns_per_ch: t / l,
-        //                             ratio: path[0].1 / path[1].1,
-        //                             testcase: res.testcase.clone(),
-        //                         })
-        //                         .expect("Could not send DoS");
     }
 
     fn init_db(&mut self) {

@@ -10,7 +10,6 @@ def std_parser(encoded, key)
   return KEY_NOT_FOUND if !data.key?(key) || data[key].nil?
 
   JSON.generate(data[key])
-  # data[key].to_s.b
 rescue StandardError
   PARSE_ERROR
 end
@@ -82,8 +81,6 @@ loop do
   if write_buffer.nil? || write_buffer.bytesize < input_buffer_size << 2
     write_buffer = "\x00" * (input_buffer_size << 2)
   end
-
-  # write_buffer.force_encoding('UTF-8')
 
   recv_all(sock, read_buffer, key_len)
   key = read_buffer[0, key_len]

@@ -60,32 +60,14 @@ impl App {
             self.updated = true;
 
             match self.state {
-                AppState::FocusTable => {
-                    match key.code {
-                        // KeyCode::Char('y') | KeyCode::Esc => tui::confirm(),
-                        KeyCode::Char('q') | KeyCode::Esc => self.state = AppState::ConfirmQuit,
-                        // KeyCode::Char('j') | KeyCode::Down => table_state.select_next(),
-                        // KeyCode::Char('k') | KeyCode::Up => table_state.select_previous(),
-                        // KeyCode::Char('l') | KeyCode::Right => table_state.select_next_column(),
-                        // KeyCode::Char('h') | KeyCode::Left => table_state.select_previous_column(),
-                        // KeyCode::Char('g') => table_state.select_first(),
-                        // KeyCode::Char('G') => table_state.select_last(),
-                        _ => {}
-                    }
-                }
-                AppState::ConfirmQuit => {
-                    match key.code {
-                        KeyCode::Char('y') => self.quit = true,
-                        // KeyCode::Char('q') | KeyCode::Esc => tui::quit(),
-                        // KeyCode::Char('j') | KeyCode::Down => table_state.select_next(),
-                        // KeyCode::Char('k') | KeyCode::Up => table_state.select_previous(),
-                        // KeyCode::Char('l') | KeyCode::Right => table_state.select_next_column(),
-                        // KeyCode::Char('h') | KeyCode::Left => table_state.select_previous_column(),
-                        // KeyCode::Char('g') => table_state.select_first(),
-                        // KeyCode::Char('G') => table_state.select_last(),
-                        _ => self.state = AppState::FocusTable,
-                    }
-                }
+                AppState::FocusTable => match key.code {
+                    KeyCode::Char('q') | KeyCode::Esc => self.state = AppState::ConfirmQuit,
+                    _ => {}
+                },
+                AppState::ConfirmQuit => match key.code {
+                    KeyCode::Char('y') => self.quit = true,
+                    _ => self.state = AppState::FocusTable,
+                },
             }
         }
 
@@ -112,14 +94,7 @@ impl App {
         self.updated = true;
     }
 
-    // fn render_statusline(s: &str, area: Rect, buf: &mut Buffer) {
-    // }
-
     fn render_table(&self, area: Rect, buf: &mut Buffer) {
-        // let layout = Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).split(area);
-        // let title_row = Line::from_iter([Span::from("asdf")]);
-        // title_row.render(area, buf);
-
         let header = Row::new([
             "Client".into(),
             "TC".into(),
@@ -184,15 +159,9 @@ impl App {
                     [
                         status.name.clone().into(),
                         json,
-                        // match json.len() {
-                        //     0..40 => json.clone().into(),
-                        //     _ => format!("{}...", &json[0..37]).into(),
-                        // },
                         d,
                         format!("{:.2}", weight).into(),
-                        // status.data.testcase.weight.to_string().into(),
                         per_s,
-                        // "?".into(),
                         dur,
                     ],
                 )
@@ -230,8 +199,6 @@ impl App {
         let mut rows: Vec<Row> = Vec::new();
 
         for (_, r) in &row_elems {
-            // rows.push(Row::from_iter(r.clone()));
-            // rows.push(Row::default().cells(r.as_ref().iter().map(|c| Cell::new(c.clone()))));
             rows.push(
                 r.as_ref()
                     .iter()
@@ -249,48 +216,7 @@ impl App {
                     })
                     .collect::<Row>(),
             );
-
-            // let mut cells = Vec::new();
-            // for i in 0..r.len() {
-            //     // if i >= 2 {
-            //     //     let text =
-            //     //         Text::from(r[i].clone()).alignment(ratatui::layout::Alignment::Right);
-            //     //     cells.push(Cell::new(text));
-            //     // } else {
-            //     cells.push(Cell::new(r[i].clone()))
-            //     // }
-            // }
-            //
-            // rows.push(Row::default().cells(cells));
         }
-
-        // let rows = [
-        //     Row::new(["c_mjson", "{\"q\":42}", "420ns", "1.23", "3.4M/s"]),
-        //     Row::new(["c_mjson", "{\"q\":42}", "420ns", "1.23", "3.4M/s"]),
-        //     Row::new(["c_mjson", "{\"q\":42}", "420ns", "1.23", "3.4M/s"]),
-        //     Row::new(["c_mjson", "{\"q\":42}", "420ns", "1.23", "3.4M/s"]),
-        //     Row::new(["c_mjson", "{\"q\":42}", "420ns", "1.23", "3.4M/s"]),
-        //     Row::new(["c_mjson", "{\"q\":42}", "420ns", "1.23", "3.4M/s"]),
-        //     Row::new(["c_mjson", "{\"q\":42}", "420ns", "1.23", "3.4M/s"]),
-        //     Row::new(["c_mjson", "{\"q\":42}", "420ns", "1.23", "3.4M/s"]),
-        //     Row::new(["c_mjson", "{\"q\":42}", "420ns", "1.23", "3.4M/s"]),
-        //     Row::new(["c_mjson", "{\"q\":42}", "420ns", "1.23", "3.4M/s"]),
-        //     Row::new(["c_mjson", "{\"q\":42}", "420ns", "1.23", "3.4M/s"]),
-        //     Row::new(["c_mjson", "{\"q\":42}", "420ns", "1.23", "3.4M/s"]),
-        //     Row::new(["c_mjson", "{\"q\":42}", "420ns", "1.23", "3.4M/s"]),
-        // ];
-
-        // let footer = Row::new([
-        //     "Ratatouille Recipe",
-        //     "",
-        //     "135 kcal, 31g carbs, 6.4g protein",
-        // ]);
-
-        // let widths = [
-        //     Constraint::Percentage(30),
-        //     Constraint::Percentage(20),
-        //     Constraint::Percentage(50),
-        // ];
 
         let block = Block::new()
             .title("Scheduler status")
@@ -298,13 +224,8 @@ impl App {
         let table = Table::new(rows, widths)
             .header(header)
             .block(block)
-            // .footer(footer.italic())
             .column_spacing(1)
             .style(Color::White);
-        // .row_highlight_style(Style::new().on_black().bold())
-        // .column_highlight_style(Color::Gray)
-        // .cell_highlight_style(Style::new().reversed().yellow())
-        // .highlight_symbol("🍴 ");
 
         table.render(area, buf);
     }
@@ -526,15 +447,9 @@ impl Widget for &App {
         match self.state {
             AppState::ConfirmQuit => {
                 Line::from_iter(["Quit".bold(), "(y/n)".bold().light_yellow(), "?".bold()])
-                    // .centered()
                     .render(statusline_cont, buf);
             }
             _ => {}
         }
-        // Line::from_iter(["Quit".bold(), "(y/n)".bold().light_yellow(), "?".bold()])
-        //     .render(statusline_cont, buf);
-
-        // MyHeaderWidget::new("Header text").render(Rect::new(0, 0, area.width, 1), buf);
-        // frame.render_widget("hello world", frame.area());
     }
 }

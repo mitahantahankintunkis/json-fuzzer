@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{comprehensive_fuzzer::ComprehensiveFuzzer, radamsa_wrapper::Radamsa};
+use crate::{okfuzz::OKFuzz, radamsa_wrapper::Radamsa};
 
 pub trait Fuzzer {
     fn advance(&mut self) -> Result<(), ()>;
@@ -69,51 +69,6 @@ impl TestCase {
             parser: None,
         }
     }
-
-    // pub fn update_id(&mut self, db_conn: &Connection) {
-    //     if self.id >= 0 {
-    //         return;
-    //     }
-    //
-    //     // Find existing
-    //     let id = db_conn.query_one(
-    //         "SELECT id FROM corpus
-    //             WHERE json = ?1 AND key = ?2
-    //             LIMIT 1",
-    //         params![&self.json, &self.key,],
-    //         |row| {
-    //             let id: isize = row.get(0)?;
-    //             Ok(id)
-    //         },
-    //     );
-    //
-    //     if let Ok(id) = id {
-    //         self.id = id;
-    //         return;
-    //     }
-    //
-    //     // json TEXT NOT NULL,
-    //     // key TEXT NOT NULL,
-    //     // weight REAL NOT NULL,
-    //     // depth INTEGER NOT NULL,
-    //     // parent INTEGER,
-    //     // FOREIGN KEY (parent) REFERENCES corpus(rowid)
-    //     db_conn
-    //         .execute(
-    //             "INSERT INTO corpus (json, key, weight, depth, parent)
-    //             VALUES (?1, ?2, ?3, ?4, ?5)",
-    //             params![
-    //                 &self.json,
-    //                 &self.key,
-    //                 &self.weight.to_string(),
-    //                 &self.depth.to_string(),
-    //                 &self.parent_id,
-    //             ],
-    //         )
-    //         .expect(&format!("Could not add testcase {:?} to corpus", self));
-    //
-    //     self.id = db_conn.last_insert_rowid() as isize;
-    // }
 }
 
 impl Display for TestCase {
@@ -129,34 +84,20 @@ impl Display for TestCase {
     }
 }
 
-#[derive(Default, Debug, Clone, clap::ValueEnum)]
-pub enum Fuzzers {
-    #[default]
-    Comprehensive,
-    Radamsa,
-}
-
 pub fn create_fuzzers(testcase: &TestCase) -> Vec<Box<dyn Fuzzer>> {
     let mut ret: Vec<Box<dyn Fuzzer>> = Vec::new();
 
-    // if testcase.weight <= 1.0 {
     if testcase.json.len() < 30 {
-        ret.push(Box::new(ComprehensiveFuzzer::insert_grammar(testcase)));
-        ret.push(Box::new(ComprehensiveFuzzer::insert_single(testcase)));
-        ret.push(Box::new(ComprehensiveFuzzer::remove_single(testcase)));
+        ret.push(Box::new(OKFuzz::insert_grammar(testcase)));
+        ret.push(Box::new(OKFuzz::insert_single(testcase)));
+        ret.push(Box::new(OKFuzz::remove_single(testcase)));
     }
 
     if testcase.depth == 0 {
-        ret.push(Box::new(ComprehensiveFuzzer::insert_unicode(testcase)));
-        ret.push(Box::new(ComprehensiveFuzzer::replace_unicode(testcase)));
-        ret.push(Box::new(ComprehensiveFuzzer::insert_single_word(testcase)));
-        ret.push(Box::new(ComprehensiveFuzzer::replace_single_word(testcase)));
-
-        //     if testcase.json.len() < 30 {
-        //         ret.push(Box::new(ComprehensiveFuzzer::insert_two(testcase)));
-        //         ret.push(Box::new(ComprehensiveFuzzer::remove_two(testcase)));
-        //     }
-        //     ret.push(Box::new(Radamsa::new(testcase, Nne)));
+        ret.push(Box::new(OKFuzz::insert_unicode(testcase)));
+        ret.push(Box::new(OKFuzz::replace_unicode(testcase)));
+        ret.push(Box::new(OKFuzz::insert_single_word(testcase)));
+        ret.push(Box::new(OKFuzz::replace_single_word(testcase)));
     }
 
     if let Ok(r) = Radamsa::new(testcase) {
